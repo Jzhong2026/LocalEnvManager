@@ -293,33 +293,73 @@ namespace LocalEnvManager.Services
                         new ManagedProject
                         {
                             Name = "ChatWidget",
-                            DeploymentMode = DeploymentMode.DotNetPublish,
-                            SourcePath = @"D:\Projects\AI-Research\ChatWidget",
-                            Command = "publish -c Release -o out",
-                            TargetPath = @"D:\Projects\AI-Research\ChatWidget\bin\Release\publish",
-                            BackupFolder = @"D:\Projects\AI-Research\ChatWidget\deploy-overlay"
+                            DeploymentMode = DeploymentMode.PowerShellCommand,
+                            SourcePath = @"D:\Source\AI-Search\src\frontend\chat-widget",
+                            Command = @".\build_release.ps1",
+                            TargetPath = @"D:\Source\AI-Search\build\ChatAgentWidget",
+                            PullLatest = true
                         },
                         new ManagedProject
                         {
                             Name = "LLMAgentApi",
-                            DeploymentMode = DeploymentMode.PowerShellCommand,
-                            SourcePath = @"D:\Projects\AI-Research\LLMAgentApi",
-                            Command = "Compress-Archive -Path .\\publish -DestinationPath .\\dist\\api.zip -Force",
-                            TargetPath = @"D:\Projects\AI-Research\LLMAgentApi\dist",
-                            BackupFolder = @"D:\Projects\AI-Research\LLMAgentApi\deploy-overlay"
+                            DeploymentMode = DeploymentMode.DotNetPublish,
+                            SourcePath = @"D:\Source\AI-Search\src\backend\LLMAgentApi\LLMAgentApi",
+                            Command = @"publish -c Release -o ""D:\Plus\LLMAgentApi""",
+                            TargetPath = @"D:\Plus\LLMAgentApi",
+                            BackupFolder = @"D:\Plus\backup\llmagentapi",
+                            IisAppPoolName = "LLMAgentApi",
+                            PullLatest = true,
+                            LogsDirectory = @"D:\Plus\Logs\llm-agent-api"
                         },
                         new ManagedProject
                         {
                             Name = "PyAgents",
                             DeploymentMode = DeploymentMode.Uvicorn,
-                            SourcePath = @"D:\Projects\AI-Research\PyAgents",
-                            Command = "main:app --host 127.0.0.1 --port 8000",
-                            TargetPath = @"D:\Projects\AI-Research\PyAgents",
-                            BackupFolder = @"D:\Projects\AI-Research\PyAgents\deploy-overlay"
+                            SourcePath = @"D:\Source\AI-Search\src\agents\python\pyagents",
+                            Command = @".venv\Scripts\python -m uvicorn hosting.main:app --host 0.0.0.0 --port 8000",
+                            TargetPath = @"D:\Source\AI-Search\build\ChatAgentWidget",
+                            PullLatest = true
                         }
                     }
                 },
-                new ProjectCategory { Name = "Plus" }
+                new ProjectCategory
+                {
+                    Name = "Plus",
+                    Projects =
+                    {
+                        new ManagedProject
+                        {
+                            Name = "tfplus_web",
+                            DeploymentMode = DeploymentMode.PowerShellCommand,
+                            SourcePath = @"D:\Plus\routefinder-web",
+                            Command = "grunt debug",
+                            TargetPath = @"D:\Plus\routefinder-web\build",
+                            BackupFolder = @"D:\Plus\backup\web",
+                            PullLatest = true
+                        },
+                        new ManagedProject
+                        {
+                            Name = "plus-core",
+                            DeploymentMode = DeploymentMode.DotNetBuild,
+                            SourcePath = @"D:\Plus\Core",
+                            Command = "build -c Release",
+                            PullLatest = true
+                        },
+                        new ManagedProject
+                        {
+                            Name = "plus-api",
+                            DeploymentMode = DeploymentMode.DotNetPublish,
+                            SourcePath = @"D:\Plus\routefinderapi\RoutefinderApi",
+                            Command = @"publish -c Release -p:Platform=""Any CPU"" -o ""D:\Plus\Api-Publish""",
+                            TargetPath = @"D:\Plus\Api-Publish",
+                            BackupFolder = @"D:\Plus\backup\RoutefinderApi",
+                            IisAppPoolName = "PlusRouteFinderApi",
+                            PullLatest = true,
+                            DependsOn = "plus-core",
+                            LogsDirectory = @"D:\Plus\routefinderapi\RoutefinderApi\logs"
+                        }
+                    }
+                }
             ];
         }
     }

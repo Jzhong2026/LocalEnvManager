@@ -155,58 +155,64 @@
                 </StackPanel>
 
                 <!-- Target Path -->
-                <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
-                    <TextBlock Text="Target Path" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
-                    <Button Style="{StaticResource HelpIconButtonStyle}"
-                            cal:Message.Attach="[Event Click] = [Action HelpTargetPath]"
-                            Content="?"
-                            VerticalAlignment="Center" />
+                <StackPanel Visibility="{Binding UsesTargetPath, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+                        <TextBlock Text="Target Path" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                        <Button Style="{StaticResource HelpIconButtonStyle}"
+                                cal:Message.Attach="[Event Click] = [Action HelpTargetPath]"
+                                Content="?"
+                                VerticalAlignment="Center" />
+                    </StackPanel>
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right"
+                                Style="{StaticResource FolderBrowseButtonStyle}"
+                                cal:Message.Attach="[Event Click] = [Action BrowseTargetFolder]"
+                                materialDesign:ButtonAssist.CornerRadius="6"
+                                Margin="8,0,0,0">
+                            <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" />
+                        </Button>
+                        <TextBox Style="{StaticResource CompactTextBoxStyle}"
+                                 Text="{Binding Project.TargetPath, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Absolute path to deploy / run directory" />
+                    </DockPanel>
                 </StackPanel>
-                <DockPanel>
-                    <Button DockPanel.Dock="Right"
-                            Style="{StaticResource FolderBrowseButtonStyle}"
-                            cal:Message.Attach="[Event Click] = [Action BrowseTargetFolder]"
-                            materialDesign:ButtonAssist.CornerRadius="6"
-                            Margin="8,0,0,0">
-                        <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" />
-                    </Button>
-                    <TextBox Style="{StaticResource CompactTextBoxStyle}"
-                             Text="{Binding Project.TargetPath, UpdateSourceTrigger=PropertyChanged}"
-                             materialDesign:HintAssist.Hint="Absolute path to deploy / run directory" />
-                </DockPanel>
 
                 <!-- Backup Folder -->
-                <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
-                    <TextBlock Text="Backup Folder" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
-                    <Button Style="{StaticResource HelpIconButtonStyle}"
-                            cal:Message.Attach="[Event Click] = [Action HelpBackupFolder]"
-                            Content="?"
-                            VerticalAlignment="Center" />
+                <StackPanel Visibility="{Binding UsesBackupFolder, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+                        <TextBlock Text="Backup Folder" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                        <Button Style="{StaticResource HelpIconButtonStyle}"
+                                cal:Message.Attach="[Event Click] = [Action HelpBackupFolder]"
+                                Content="?"
+                                VerticalAlignment="Center" />
+                    </StackPanel>
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right"
+                                Style="{StaticResource FolderBrowseButtonStyle}"
+                                cal:Message.Attach="[Event Click] = [Action BrowseBackupFolder]"
+                                materialDesign:ButtonAssist.CornerRadius="6"
+                                Margin="8,0,0,0">
+                            <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" />
+                        </Button>
+                        <TextBox Style="{StaticResource CompactTextBoxStyle}"
+                                 Text="{Binding Project.BackupFolder, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Absolute path to the folder copied into target after build" />
+                    </DockPanel>
                 </StackPanel>
-                <DockPanel>
-                    <Button DockPanel.Dock="Right"
-                            Style="{StaticResource FolderBrowseButtonStyle}"
-                            cal:Message.Attach="[Event Click] = [Action BrowseBackupFolder]"
-                            materialDesign:ButtonAssist.CornerRadius="6"
-                            Margin="8,0,0,0">
-                        <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" />
-                    </Button>
-                    <TextBox Style="{StaticResource CompactTextBoxStyle}"
-                             Text="{Binding Project.BackupFolder, UpdateSourceTrigger=PropertyChanged}"
-                             materialDesign:HintAssist.Hint="Absolute path to the folder copied into target after build" />
-                </DockPanel>
 
                 <!-- IIS AppPool Name -->
-                <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
-                    <TextBlock Text="IIS AppPool" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
-                    <Button Style="{StaticResource HelpIconButtonStyle}"
-                            cal:Message.Attach="[Event Click] = [Action HelpIisAppPool]"
-                            Content="?"
-                            VerticalAlignment="Center" />
+                <StackPanel Visibility="{Binding UsesIisAppPool, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+                        <TextBlock Text="IIS AppPool" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                        <Button Style="{StaticResource HelpIconButtonStyle}"
+                                cal:Message.Attach="[Event Click] = [Action HelpIisAppPool]"
+                                Content="?"
+                                VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBox Style="{StaticResource CompactTextBoxStyle}"
+                             Text="{Binding Project.IisAppPoolName, UpdateSourceTrigger=PropertyChanged}"
+                             materialDesign:HintAssist.Hint="Optional IIS AppPool name to recycle before publish/build and target sync (e.g. LLMAgentApi)" />
                 </StackPanel>
-                <TextBox Style="{StaticResource CompactTextBoxStyle}"
-                         Text="{Binding Project.IisAppPoolName, UpdateSourceTrigger=PropertyChanged}"
-                         materialDesign:HintAssist.Hint="Optional IIS AppPool name to recycle before publish (e.g. LLMAgentApi)" />
 
                 <!-- Pull Latest -->
                 <StackPanel Orientation="Horizontal" Margin="0,16,0,0">

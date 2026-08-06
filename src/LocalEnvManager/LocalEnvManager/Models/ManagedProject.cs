@@ -33,6 +33,7 @@ namespace LocalEnvManager.Models
 	private bool _hasLatestError;
 	private string _logsDirectory = string.Empty;
 	private string _dependsOn = string.Empty;
+	private bool _hasRunningProcess;
 
 	public string Name
 		{
@@ -193,6 +194,10 @@ namespace LocalEnvManager.Models
 				// so bindings re-enable the controls when a run finishes.
 				NotifyOfPropertyChange(nameof(IsRunEnabled));
 				NotifyOfPropertyChange(nameof(IsCheckEnabled));
+				NotifyOfPropertyChange(nameof(IsStopEnabled));
+				// Do not clear HasRunningProcess here. Uvicorn reports Success once
+				// its port is bound, but its console process remains alive and must
+				// still expose Stop. The runner/Stop path owns clearing that flag.
 			}
 			}
 		}
@@ -216,6 +221,37 @@ namespace LocalEnvManager.Models
 
 		// Whether the per-row "Run" button is currently enabled. Disabled while a run is in progress.
 		public bool IsRunEnabled => LastRunState != ExecutionState.Running;
+
+		// ===== Stop button (per-row, Execute tab) =====
+		// True when the runner currently tracks a live process for this project
+		// that the user is allowed to interrupt.
+		//
+		// `HasRunningProcess` is independent of `LastRunState` because the two
+		// states drift over time for uvicorn:
+		//   - LastRunState flips to Success when the port binds (the launcher is
+		//     still resident and holds the FastAPI socket — HasRunningProcess=true).
+		//   - The launcher can exit later on its own (crash, OS reboot, user
+		//     killed it externally) — HasRunningProcess must flip back to false
+		//     so the Stop button disappears without a manual refresh.
+		// PowerShell scripts always exit on success/failure, so the button is
+		// only relevant while Running. Dotnet publish / build likewise exit on
+		// their own once the command completes.
+		public bool HasRunningProcess
+		{
+			get => _hasRunningProcess;
+			set
+			{
+				if (Set(ref _hasRunningProcess, value))
+				{
+					NotifyOfPropertyChange(nameof(IsStopEnabled));
+				}
+			}
+		}
+
+		public bool IsStopEnabled =>
+			HasRunningProcess
+			&& (DeploymentMode is DeploymentMode.Uvicorn
+				or DeploymentMode.PowerShellCommand);
 
 		// ===== Execution-tab checkbox =====
 		// True when the user wants this project to run as part of "Run selected".

@@ -1,4 +1,5 @@
 <UserControl x:Class="LocalEnvManager.Views.ExecuteView"
+             x:Name="Root"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -67,6 +68,7 @@
                                 <ColumnDefinition Width="220" />
                                 <ColumnDefinition Width="56" />
                                 <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="64" />
                             </Grid.ColumnDefinitions>
                             <CheckBox Grid.Column="0"
                                       VerticalAlignment="Center"
@@ -92,6 +94,7 @@
                             </DockPanel>
                             <TextBlock Grid.Column="4" Text="拉取" Style="{StaticResource TableHeaderStyle}" TextAlignment="Center" />
                             <TextBlock Grid.Column="5" Text="状态" Style="{StaticResource TableHeaderStyle}" />
+                            <TextBlock Grid.Column="6" Text="" Style="{StaticResource TableHeaderStyle}" />
                         </Grid>
 
                         <!-- Project rows -->
@@ -100,7 +103,7 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Border Style="{StaticResource ExecuteProjectRowStyle}"
-                                                cal:Action.TargetWithoutContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"
+                                                cal:Action.TargetWithoutContext="{Binding DataContext, ElementName=Root}"
                                                 cal:Message.Attach="[Event MouseLeftButtonUp] = [Action SelectProject($dataContext)]">
                                             <Grid Margin="14,10">
                                                 <Grid.ColumnDefinitions>
@@ -110,6 +113,7 @@
                                                     <ColumnDefinition Width="220" />
                                                     <ColumnDefinition Width="56" />
                                                     <ColumnDefinition Width="80" />
+                                                    <ColumnDefinition Width="64" />
                                                 </Grid.ColumnDefinitions>
 
                                                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
@@ -191,6 +195,30 @@
                                                                Foreground="White"
                                                                Text="{Binding UpdateStateDisplay}" />
                                                 </Border>
+
+                                                <!-- Per-row Stop button. Only visible for PowerShell and uvicorn modes
+                                                     while running. Dotnet publish / build exit on their own so a stop
+                                                     button there would be misleading.
+                                                     Routing: cal:Action.Target with ElementName=Root binds to the
+                                                     UserControl's named element "Root", whose DataContext is
+                                                     ExecuteViewModel. This is the only reliable way inside a nested
+                                                     DataTemplate — `Action.TargetWithoutContext` was silently dropping
+                                                     the click and the `$parent.$parent` syntax throws ActionNotFound
+                                                     (literal method name, not a path). -->
+                                                <Button Grid.Column="6"
+                                                        HorizontalAlignment="Center"
+                                                        VerticalAlignment="Center"
+                                                        Width="28" Height="28"
+                                                        Padding="0"
+                                                        ToolTip="停止进程（uvicorn / PowerShell）"
+                                                        Visibility="{Binding IsStopEnabled, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                        cal:Action.TargetWithoutContext="{Binding DataContext, ElementName=Root}"
+                                                        cal:Message.Attach="[Event Click] = [Action StopProject($dataContext)]"
+                                                        Background="#DC2626"
+                                                        BorderBrush="#DC2626"
+                                                        Foreground="White">
+                                                    <materialDesign:PackIcon Kind="Stop" Width="14" Height="14" />
+                                                </Button>
                                             </Grid>
                                         </Border>
                                     </DataTemplate>

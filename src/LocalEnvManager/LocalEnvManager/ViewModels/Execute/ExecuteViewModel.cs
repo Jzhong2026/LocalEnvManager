@@ -182,6 +182,20 @@ namespace LocalEnvManager.ViewModels
             {
                 if (Set(ref _selectedProject, value))
                 {
+                    // Mirror to ManagedProject.IsSelected so the row DataTrigger
+                    // (ExecuteProjectRowStyle) actually highlights the row the user
+                    // clicked. Without this, switching from Manage tab → Execute
+                    // tab leaves the previously-selected project's highlight
+                    // stuck on, and clicking a new row never lights up.
+                    foreach (var project in _catalog.Projects)
+                    {
+                        var isSelected = project == value;
+                        if (project.IsSelected != isSelected)
+                        {
+                            project.IsSelected = isSelected;
+                        }
+                    }
+
                     if (value is not null)
                     {
                         EnsurePaneFor(value);
@@ -287,6 +301,73 @@ namespace LocalEnvManager.ViewModels
             if (!IsRunning || _runCts is null) return;
             try { _runCts.Cancel(); } catch { }
             _logger.Append(LogEntry.LogLevel.Warn, "用户取消了当前运行。");
+        }
+
+        // Per-project Stop. Triggers IProjectUpdateRunner.StopAsync for the named
+        // project — kills the launcher + worker for uvicorn, cancels the linked
+        // CTS for PowerShell. The pipeline then unwinds with a ProjectRunFinished
+        // message whose body says "已停止"; the pipeline handler treats that as a
+        // soft cancellation rather than a failure (state stays Idle, no error tint).
+        //
+        // Synchronous void wrapper: Caliburn.Micro's Message.Attach invokes the
+        // action via reflection and silently drops the Task returned from an
+        // async method (any exception inside is swallowed). Wrapping the async
+        // body in a void method that fire-and-forgets `_ = StopProjectCore(...)`
+        // keeps the call site simple AND guarantees exceptions surface in the
+        // runtime log instead of vanishing.
+        public void StopProject(ManagedProject project)
+        {
+            if (project is null) return;
+            _logger.Append(LogEntry.LogLevel.Info,
+                $"[Stop] 点击按钮: project={project.Name} LastRunState={project.LastRunState} HasRunningProcess={project.HasRunningProcess} DeploymentMode={project.DeploymentMode}");
+            _ = StopProjectCoreAsync(project);
+        }
+
+        private async Task StopProjectCoreAsync(ManagedProject project)
+        {
+            // For uvicorn the runner keeps a Process reference in s_uvicornProcesses
+            // until the user (or relaunch) kills it, so we must allow Stop after
+            // the pipeline has flipped state to Success. The runner is the source
+            // of truth: if it can't find a process to kill, StopAsync returns
+            // false and we do nothing.
+            // For PowerShell we only allow Stop while Running (the script exits
+            // on its own on completion, so a Success/Failed Stop would be a no-op).
+            var allowWhenNotRunning = project.DeploymentMode == DeploymentMode.Uvicorn;
+            if (!allowWhenNotRunning && project.LastRunState != ExecutionState.Running) return;
+
+            // Optimistic UI: hide the Stop button the instant the kill command is
+            // dispatched so a frantic user can't double-click and re-signal the
+            // same process tree. The pipeline's own state update happens later,
+            // after Process.Kill completes and the cancellation propagates back.
+            project.HasRunningProcess = false;
+
+            try
+            {
+                var sink = new Progress<string>(line =>
+                {
+                    if (!string.IsNullOrWhiteSpace(line))
+                    {
+                        _events.PublishOnCurrentThread(new ConsoleLineMessage(
+                            _catalog.GetProjectId(project), line));
+                    }
+                });
+                var stopped = await _runner.StopAsync(project, sink);
+                if (stopped)
+                {
+                    _logger.Append(LogEntry.LogLevel.Warn,
+                        $"[{project.Name}] 用户请求停止进程。");
+                }
+                else if (project.DeploymentMode == DeploymentMode.Uvicorn)
+                {
+                    _logger.Append(LogEntry.LogLevel.Warn,
+                        $"[{project.Name}] 未找到运行中的 uvicorn 进程,可能已退出。");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Append(LogEntry.LogLevel.Error,
+                    $"[{project.Name}] 停止失败：{ex.Message}");
+            }
         }
 
         public void SelectAll()
@@ -444,6 +525,14 @@ namespace LocalEnvManager.ViewModels
             project.LastExecutionMessage = string.Empty;
             project.LatestLogSnippet = string.Empty;
             project.HasLatestError = false;
+            // HasRunningProcess drives the per-row Stop button visibility. For a
+            // uvicorn service, it remains true after the update itself succeeds:
+            // the launcher is still a live console process until Stop is clicked
+            // (or it exits naturally). PowerShell is stoppable only while its
+            // command is still running.
+            project.HasRunningProcess =
+                project.DeploymentMode is DeploymentMode.Uvicorn
+                    or DeploymentMode.PowerShellCommand;
 
             // Clear the right-pane console buffer so the new run starts on a clean slate.
             _events.PublishOnCurrentThread(new ProjectRunStartedMessage(projectId, project.DeploymentMode));
@@ -460,12 +549,32 @@ namespace LocalEnvManager.ViewModels
             try
             {
                 var result = await _runner.ExecuteAsync(project, options, progress, cancellationToken);
-                project.LastRunState = result.Success ? ExecutionState.Success : ExecutionState.Failed;
-                project.LastExecutionMessage = result.Message;
-                project.LatestLogSnippet = result.Success
-                    ? "执行完成"
-                    : $"执行失败：{Truncate(result.Message, 80)}";
-                project.HasLatestError = !result.Success;
+                // A completed PowerShell command no longer has a console process
+                // to stop. Uvicorn is different: a successful readiness check
+                // means the server process remains alive after this method returns.
+                project.HasRunningProcess =
+                    project.DeploymentMode == DeploymentMode.Uvicorn && result.Success;
+                // Distinguish "user pressed Stop" from a real failure. The runner
+                // tags user-initiated stops with "已停止" in the message; treat that
+                // as a soft cancellation (state -> Idle, no red tint) instead of
+                // showing the project as a Failed row.
+                var stoppedByUser = result.Message?.Contains("已停止", StringComparison.Ordinal) == true;
+                if (stoppedByUser)
+                {
+                    project.LastRunState = ExecutionState.Idle;
+                    project.LastExecutionMessage = result.Message;
+                    project.LatestLogSnippet = "已停止";
+                    project.HasLatestError = false;
+                }
+                else
+                {
+                    project.LastRunState = result.Success ? ExecutionState.Success : ExecutionState.Failed;
+                    project.LastExecutionMessage = result.Message;
+                    project.LatestLogSnippet = result.Success
+                        ? "执行完成"
+                        : $"执行失败：{Truncate(result.Message, 80)}";
+                    project.HasLatestError = !result.Success;
+                }
                 _events.PublishOnCurrentThread(new ProjectRunFinishedMessage(projectId, result.Success, result.Message));
             }
             catch (Exception ex)

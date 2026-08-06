@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.ComponentModel;
 using Caliburn.Micro;
 using LocalEnvManager.Models;
 using LocalEnvManager.Services;
@@ -30,16 +31,94 @@ namespace LocalEnvManager.ViewModels
             Project = project;
             DependencyOptions = dependencyOptions;
             DisplayName = "Edit Project";
+
+            // Re-publish visibility flags whenever DeploymentMode changes so the
+            // dialog sections (Command / Target / Backup) can bind
+            // directly to these booleans without any code-behind.
+            Project.PropertyChanged += OnProjectPropertyChanged;
         }
+
+        protected override System.Threading.Tasks.Task OnDeactivateAsync(bool close, System.Threading.CancellationToken cancellationToken)
+        {
+            if (close)
+            {
+                Project.PropertyChanged -= OnProjectPropertyChanged;
+            }
+            return base.OnDeactivateAsync(close, cancellationToken);
+        }
+
 
         /// <summary>The project record being edited; the dialog binds straight to this instance.</summary>
         public ManagedProject Project { get; }
 
-        /// <summary>Computed: the Command field is meaningful for non-uvicorn modes.</summary>
-        public bool UsesCommand => Project.DeploymentMode != DeploymentMode.Uvicorn;
+        /// <summary>True when the Command input should be shown for the current DeploymentMode.</summary>
+        public bool UsesCommand => true;
+
+        /// <summary>True for DeploymentModes that deploy files to a Target Path.</summary>
+        public bool UsesTargetPath => Project.DeploymentMode
+            is DeploymentMode.DotNetPublish
+            or DeploymentMode.DotNetBuild;
+
+        /// <summary>True for DeploymentModes that copy a backup folder into the target.</summary>
+        public bool UsesBackupFolder => Project.DeploymentMode
+            is DeploymentMode.DotNetPublish
+            or DeploymentMode.DotNetBuild;
+
+        /// <summary>Always show IIS AppPool so users can preconfigure it for any mode.</summary>
+        public bool UsesIisAppPool => true;
 
         /// <summary>Other projects the user can pick as a dependency.</summary>
         public IReadOnlyList<ManagedProject> DependencyOptions { get; }
+
+        // Tracks the last DeploymentMode we observed so we only auto-fill Command
+        // on a *real* mode switch (the user's edit of an unrelated field, or the
+        // initial construction of the VM with the existing persisted mode, must
+        // not stomp on a Command the user already typed).
+        private DeploymentMode? _lastObservedDeploymentMode;
+
+        private void OnProjectPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(ManagedProject.DeploymentMode))
+            {
+                var current = Project.DeploymentMode;
+
+                // First observation (or genuinely a different mode) → auto-fill.
+                // Equal to last observation (a PropertyChanged round-trip from
+                // our own write, or a no-op rebind) → leave Command alone.
+                if (!_lastObservedDeploymentMode.HasValue || _lastObservedDeploymentMode.Value != current)
+                {
+                    // Only overwrite an empty Command. Once the user has typed
+                    // anything into the field we treat it as "their command" and
+                    // stop auto-filling, so cycling modes for comparison doesn't
+                    // destroy their work.
+                    if (string.IsNullOrWhiteSpace(Project.Command))
+                    {
+                        Project.Command = CommandExampleCatalog.GetDefaultCommand(
+                            current, Project.TargetPath);
+                    }
+                }
+
+                _lastObservedDeploymentMode = current;
+
+                NotifyOfPropertyChange(nameof(UsesCommand));
+                NotifyOfPropertyChange(nameof(UsesTargetPath));
+                NotifyOfPropertyChange(nameof(UsesBackupFolder));
+                NotifyOfPropertyChange(nameof(UsesIisAppPool));
+            }
+            else if (e.PropertyName is nameof(ManagedProject.TargetPath))
+            {
+                // TargetPath splicing only happens when Command is still the
+                // auto-filled DotNetPublish default and TargetPath was just
+                // filled in — without this guard, editing TargetPath after the
+                // user customised Command would silently rewrite their command.
+                if (Project.DeploymentMode == DeploymentMode.DotNetPublish
+                    && string.IsNullOrWhiteSpace(Project.Command))
+                {
+                    Project.Command = CommandExampleCatalog.GetDefaultCommand(
+                        Project.DeploymentMode, Project.TargetPath);
+                }
+            }
+        }
 
         // ===== Folder browsing =====
 
@@ -79,22 +158,28 @@ namespace LocalEnvManager.ViewModels
         }
 
         // ===== Help buttons =====
+        // All help text is sourced from ParameterHelpCatalog so the EditProject
+        // dialog stays generic and the wording can be edited centrally. The
+        // constants below are the stable keys the catalog exposes for each field.
 
-        public void HelpProjectName() => ShowHelp("Project Name", "项目的显示名，用于标识 / 持久化 / 日志记录。");
-        public void HelpDeploymentMode() => ShowHelp("Deployment Mode",
-            "四种部署方式：\n• dotnet publish：发布 ASP.NET Core 应用\n• dotnet build：仅编译\n• PowerShell：执行任意 PowerShell 命令\n• uvicorn：启动 Python ASGI 服务（常驻）");
-        public void HelpSourcePath() => ShowHelp("Source Path", "源目录 / 工作目录。git pull 会在这里执行。");
-        public void HelpCommand() => ShowHelp("Command", "部署命令。切换 Deployment Mode 会自动填入示例；可点 ? 查看更多示例并复制。");
-        public void HelpTargetPath() => ShowHelp("Target Path", "部署目录 / 运行目录。");
-        public void HelpBackupFolder() => ShowHelp("Backup Folder", "构建后拷贝到 Target Path 的覆盖目录。");
-        public void HelpIisAppPool() => ShowHelp("IIS AppPool", "可选 IIS 应用池名称；publish 前会先回收该 AppPool。");
-        public void HelpPullLatest() => ShowHelp("更新前执行 git pull", "启用后每次更新前会先在源目录执行 git pull；失败时跳过该项目。");
-        public void HelpDependsOn() => ShowHelp("依赖项目", "逗号分隔的项目名；勾选依赖项目时会先完成依赖再开始当前项目。");
-        public void HelpLogsDirectory() => ShowHelp("Logs Directory", "留空时按 项目名/源路径/目标路径 自动发现 logs 目录。");
+        public void HelpProjectName() => ShowHelp(ParameterHelpCatalog.ProjectName);
+        public void HelpDeploymentMode() => ShowHelp(ParameterHelpCatalog.DeploymentMode);
+        public void HelpSourcePath() => ShowHelp(ParameterHelpCatalog.SourcePath);
+        public void HelpCommand() => ShowHelp(ParameterHelpCatalog.Command);
+        public void HelpTargetPath() => ShowHelp(ParameterHelpCatalog.TargetPath);
+        public void HelpBackupFolder() => ShowHelp(ParameterHelpCatalog.BackupFolder);
+        public void HelpIisAppPool() => ShowHelp(ParameterHelpCatalog.IisAppPool);
+        public void HelpPullLatest() => ShowHelp(ParameterHelpCatalog.PullLatest);
+        public void HelpDependsOn() => ShowHelp(ParameterHelpCatalog.DependsOn);
+        public void HelpLogsDirectory() => ShowHelp(ParameterHelpCatalog.LogsDirectory);
 
-        private void ShowHelp(string title, string content)
+        private void ShowHelp(string catalogKey)
         {
-            var helpVm = new ParameterHelpViewModel(title, content);
+            var help = ParameterHelpCatalog.Get(catalogKey);
+            // Use the ParameterHelpViewModel(ParameterHelp) ctor so the dialog
+            // renders the catalog's full description plus any clickable example
+            // rows (e.g. the 9 Command examples live there).
+            var helpVm = new ParameterHelpViewModel(help);
             // Fire-and-forget — the help dialog is informational; we don't need
             // its return value and the parent dialog stays responsive.
             _ = _windowManager.ShowDialogAsync(helpVm);
