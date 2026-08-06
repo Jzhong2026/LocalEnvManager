@@ -32,6 +32,14 @@ namespace LocalEnvManager.ViewModels
 
         public bool HasProjects => _catalog.Projects.Count > 0;
 
+        /// <summary>
+        /// True when there is a project currently highlighted on the left
+        /// list. Drives the right-pane Delete / Edit buttons' <c>IsEnabled</c>
+        /// bindings in <c>ManageView.xaml</c>. Returning <c>false</c> when no
+        /// project is selected prevents accidental deletes/edits.
+        /// </summary>
+        public bool HasSelectedProject => _selectedProject is not null;
+
         public ManagedProject? SelectedProject
         {
             get => _selectedProject;
@@ -48,9 +56,22 @@ namespace LocalEnvManager.ViewModels
                             project.IsSelected = isSelected;
                         }
                     }
+                    // Buttons in the right pane bind to HasSelectedProject — make
+                    // sure they re-query after the selection changes.
+                    NotifyOfPropertyChange(nameof(HasSelectedProject));
                 }
             }
         }
+
+        /// <summary>
+        /// Wire-up target for the per-row click in <c>ManageView.xaml</c>
+        /// (<c>[Action SelectProject($dataContext)]</c>). Mirrors the exact
+        /// pattern used by <see cref="ExecuteViewModel.SelectProject"/> —
+        /// without this method, Caliburn.Micro can't resolve the action and
+        /// throws <c>ActionNotFoundException</c>, which crashes the app on
+        /// the user's first project switch.
+        /// </summary>
+        public void SelectProject(ManagedProject project) => SelectedProject = project;
 
         public void OnActivated() { /* nothing lazy yet */ }
 
