@@ -189,6 +189,10 @@ namespace LocalEnvManager.Models
 			{
 				NotifyOfPropertyChange(nameof(LastRunStateDisplay));
 				NotifyOfPropertyChange(nameof(UpdateStateDisplay));
+				// These values are derived from LastRunState. Notify them explicitly
+				// so bindings re-enable the controls when a run finishes.
+				NotifyOfPropertyChange(nameof(IsRunEnabled));
+				NotifyOfPropertyChange(nameof(IsCheckEnabled));
 			}
 			}
 		}

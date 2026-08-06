@@ -4,6 +4,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:cal="http://www.caliburnproject.org"
+             xmlns:behaviors="clr-namespace:LocalEnvManager.Behaviors"
              xmlns:converters="clr-namespace:LocalEnvManager.Converters"
              xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
              xmlns:vm="clr-namespace:LocalEnvManager.ViewModels"
@@ -303,7 +304,8 @@
                                                     Visibility="{Binding Available, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                 <ScrollViewer Style="{StaticResource DarkLogScrollViewer}"
                                                               VerticalScrollBarVisibility="Auto"
-                                                              HorizontalScrollBarVisibility="Auto">
+                                                              HorizontalScrollBarVisibility="Auto"
+                                                              behaviors:AutoScrollToEndBehavior.IsEnabled="True">
                                                     <ItemsControl ItemsSource="{Binding Lines}">
                                                         <ItemsControl.ItemTemplate>
                                                             <DataTemplate>
@@ -353,7 +355,8 @@
                                                     Visibility="{Binding Available, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                 <ScrollViewer Style="{StaticResource DarkLogScrollViewer}"
                                                               VerticalScrollBarVisibility="Auto"
-                                                              HorizontalScrollBarVisibility="Auto">
+                                                              HorizontalScrollBarVisibility="Auto"
+                                                              behaviors:AutoScrollToEndBehavior.IsEnabled="True">
                                                     <ItemsControl ItemsSource="{Binding Lines}">
                                                         <ItemsControl.ItemTemplate>
                                                             <DataTemplate>
