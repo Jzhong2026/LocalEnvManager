@@ -554,22 +554,25 @@ CornerRadius="4" Padding="0">
      This explicit style paints a visible track + thumb so users can actually
      reach the bottom of long build outputs. Applied by every ScrollViewer
      inside a dark log card via x:Key="DarkLogScrollViewer". -->
-<SolidColorBrush x:Key="ScrollBarTrackBrush" Color="#1E293B" />
-<SolidColorBrush x:Key="ScrollBarThumbBrush" Color="#475569" />
-<SolidColorBrush x:Key="ScrollBarThumbHoverBrush" Color="#64748B" />
-<SolidColorBrush x:Key="ScrollBarThumbPressedBrush" Color="#94A3B8" />
-<SolidColorBrush x:Key="ScrollBarButtonBrush" Color="#334155" />
-<SolidColorBrush x:Key="ScrollBarButtonHoverBrush" Color="#475569" />
+<!-- The track deliberately stays darker than the thumb: both horizontal and
+     vertical bars must remain immediately visible against #0F172A. -->
+<SolidColorBrush x:Key="ScrollBarTrackBrush" Color="#334155" />
+<SolidColorBrush x:Key="ScrollBarThumbBrush" Color="#CBD5E1" />
+<SolidColorBrush x:Key="ScrollBarThumbHoverBrush" Color="#F1F5F9" />
+<SolidColorBrush x:Key="ScrollBarThumbPressedBrush" Color="#FFFFFF" />
+<SolidColorBrush x:Key="ScrollBarButtonBrush" Color="#475569" />
+<SolidColorBrush x:Key="ScrollBarButtonHoverBrush" Color="#64748B" />
 
 <Style x:Key="ScrollBarThumbStyle" TargetType="Thumb">
     <Setter Property="OverridesDefaultStyle" Value="True" />
     <Setter Property="IsTabStop" Value="False" />
+    <Setter Property="Margin" Value="2,0" />
     <Setter Property="Template">
         <Setter.Value>
             <ControlTemplate TargetType="Thumb">
                 <Border Background="{StaticResource ScrollBarThumbBrush}"
                         CornerRadius="3"
-                        Margin="2,0" />
+                        Margin="{TemplateBinding Margin}" />
             </ControlTemplate>
         </Setter.Value>
     </Setter>
@@ -580,7 +583,7 @@ CornerRadius="4" Padding="0">
                     <ControlTemplate TargetType="Thumb">
                         <Border Background="{StaticResource ScrollBarThumbHoverBrush}"
                                 CornerRadius="3"
-                                Margin="2,0" />
+                                Margin="{TemplateBinding Margin}" />
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -591,12 +594,16 @@ CornerRadius="4" Padding="0">
                     <ControlTemplate TargetType="Thumb">
                         <Border Background="{StaticResource ScrollBarThumbPressedBrush}"
                                 CornerRadius="3"
-                                Margin="2,0" />
+                                Margin="{TemplateBinding Margin}" />
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Trigger>
     </Style.Triggers>
+</Style>
+
+<Style x:Key="HorizontalScrollBarThumbStyle" TargetType="Thumb" BasedOn="{StaticResource ScrollBarThumbStyle}">
+    <Setter Property="Margin" Value="0,2" />
 </Style>
 
 <Style x:Key="ScrollBarPageButtonStyle" TargetType="RepeatButton">
@@ -654,7 +661,7 @@ CornerRadius="4" Padding="0">
                                           Style="{StaticResource ScrollBarPageButtonStyle}" />
                         </Track.DecreaseRepeatButton>
                         <Track.Thumb>
-                            <Thumb Style="{StaticResource ScrollBarThumbStyle}" />
+                            <Thumb Style="{StaticResource HorizontalScrollBarThumbStyle}" />
                         </Track.Thumb>
                         <Track.IncreaseRepeatButton>
                             <RepeatButton Command="ScrollBar.PageRightCommand"
@@ -667,11 +674,66 @@ CornerRadius="4" Padding="0">
     </Setter>
 </Style>
 
+<!-- A ScrollViewer creates both scrollbar orientations.  It needs one template
+     that selects the corresponding track; applying the vertical style to both
+     orientations is what produced the malformed lower scrollbar. -->
+<Style x:Key="DarkLogScrollBarStyle" TargetType="ScrollBar">
+    <Setter Property="Background" Value="{StaticResource ScrollBarTrackBrush}" />
+    <Setter Property="Width" Value="12" />
+    <Setter Property="MinWidth" Value="12" />
+    <Setter Property="Template">
+        <Setter.Value>
+            <ControlTemplate TargetType="ScrollBar">
+                <Grid Background="{TemplateBinding Background}">
+                    <!-- ScrollBar discovers and wires Thumb dragging through this
+                         required part name. -->
+                    <Track x:Name="PART_Track"
+                           IsDirectionReversed="True"
+                           Minimum="{TemplateBinding Minimum}"
+                           Maximum="{TemplateBinding Maximum}"
+                           ViewportSize="{TemplateBinding ViewportSize}"
+                           Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                        <Track.DecreaseRepeatButton>
+                            <RepeatButton x:Name="DecreaseButton"
+                                          Command="ScrollBar.PageUpCommand"
+                                          Style="{StaticResource ScrollBarPageButtonStyle}" />
+                        </Track.DecreaseRepeatButton>
+                        <Track.Thumb>
+                            <Thumb Style="{StaticResource ScrollBarThumbStyle}" />
+                        </Track.Thumb>
+                        <Track.IncreaseRepeatButton>
+                            <RepeatButton x:Name="IncreaseButton"
+                                          Command="ScrollBar.PageDownCommand"
+                                          Style="{StaticResource ScrollBarPageButtonStyle}" />
+                        </Track.IncreaseRepeatButton>
+                    </Track>
+                </Grid>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="Orientation" Value="Horizontal">
+                        <Setter TargetName="PART_Track" Property="Orientation" Value="Horizontal" />
+                        <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False" />
+                        <Setter TargetName="DecreaseButton" Property="Command" Value="{x:Static ScrollBar.PageLeftCommand}" />
+                        <Setter TargetName="IncreaseButton" Property="Command" Value="{x:Static ScrollBar.PageRightCommand}" />
+                    </Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate>
+        </Setter.Value>
+    </Setter>
+    <Style.Triggers>
+        <Trigger Property="Orientation" Value="Horizontal">
+            <Setter Property="Width" Value="Auto" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="Height" Value="12" />
+            <Setter Property="MinHeight" Value="12" />
+        </Trigger>
+    </Style.Triggers>
+</Style>
+
 <Style x:Key="DarkLogScrollViewer" TargetType="ScrollViewer">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="Foreground" Value="{StaticResource ScrollBarTrackBrush}" />
     <Style.Resources>
-        <Style TargetType="ScrollBar" BasedOn="{StaticResource VerticalScrollBarStyle}" />
+        <Style TargetType="ScrollBar" BasedOn="{StaticResource DarkLogScrollBarStyle}" />
     </Style.Resources>
 </Style>
 
