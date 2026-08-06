@@ -1,3 +1,5 @@
+using System.Linq;
+using System.Threading.Tasks;
 using Caliburn.Micro;
 using LocalEnvManager.Models;
 using LocalEnvManager.Services;
@@ -14,11 +16,13 @@ namespace LocalEnvManager.ViewModels
     public sealed class ManageViewModel : Screen, IPageViewModel
     {
         private readonly IProjectCatalog _catalog;
+        private readonly IWindowManager _windowManager;
         private ManagedProject? _selectedProject;
 
-        public ManageViewModel(IProjectCatalog catalog)
+        public ManageViewModel(IProjectCatalog catalog, IWindowManager windowManager)
         {
             _catalog = catalog;
+            _windowManager = windowManager;
             _catalog.Projects.CollectionChanged += (_, _) => NotifyOfPropertyChange(nameof(HasProjects));
         }
 
@@ -101,13 +105,42 @@ namespace LocalEnvManager.ViewModels
                 PullLatest = true
             };
             category.Projects.Add(project);
+            SelectedProject = project;
         }
 
-        public void RemoveProject(ProjectCategory category, ManagedProject project)
+        /// <summary>
+        /// Opens the selected project with an explicit view-model.  This keeps the
+        /// button action resolvable instead of letting Caliburn attempt to invoke
+        /// a missing action at click time.
+        /// </summary>
+        public async Task EditProject()
         {
-            if (category is null || project is null) return;
+            var project = SelectedProject;
+            if (project is null) return;
+
+            var dependencies = _catalog.Projects
+                .Where(candidate => !ReferenceEquals(candidate, project))
+                .ToList();
+            await _windowManager.ShowDialogAsync(
+                new EditProjectViewModel(project, dependencies, _windowManager));
+        }
+
+        /// <summary>
+        /// Removes the selected project.  Resolving its category here avoids the
+        /// nested category-row binding context that previously made the right-pane
+        /// command pass the wrong arguments.
+        /// </summary>
+        public void RemoveSelectedProject()
+        {
+            var project = SelectedProject;
+            if (project is null) return;
+
+            var category = _catalog.Categories
+                .FirstOrDefault(candidate => candidate.Projects.Contains(project));
+            if (category is null) return;
+
             category.Projects.Remove(project);
-            if (SelectedProject == project)
+            if (ReferenceEquals(SelectedProject, project))
             {
                 SelectedProject = _catalog.Projects.FirstOrDefault();
             }

@@ -127,7 +127,7 @@
                 <DockPanel Grid.Row="0" Margin="0,0,0,16">
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Style="{StaticResource DeleteIconButtonStyle}"
-                                cal:Message.Attach="[Event Click] = [Action RemoveProject($parent.$parent.SelectedProject, $parent.$parent)]"
+                                cal:Message.Attach="[Event Click] = [Action RemoveSelectedProject]"
                                 IsEnabled="{Binding HasSelectedProject}"
                                 Margin="0,0,8,0"
                                 ToolTip="删除项目">
