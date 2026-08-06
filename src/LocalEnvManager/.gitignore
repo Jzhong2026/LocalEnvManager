@@ -1,0 +1,28 @@
+# --- Test / log artifacts ---
+# Local test screenshots, run logs, and other dev-time outputs go here.
+artifacts/
+
+# Stray log files that may appear at the repo root from backgrounded runs.
+/*.log
+/*.err
+/*.out
+
+# --- .NET build outputs ---
+bin/
+obj/
+*.user
+*.suo
+
+# --- IDE / tooling caches ---
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# --- OS junk ---
+Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
+.DS_Store
+Desktop.ini
+$RECYCLE.BIN/

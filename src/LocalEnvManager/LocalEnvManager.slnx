@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/LocalEnvManager/" />
+  <Folder Name="/LocalEnvManager/build/" />
+  <Folder Name="/LocalEnvManager/build/verify/" />
+  <Project Path="LocalEnvManager/LocalEnvManager.csproj" />
+</Solution>

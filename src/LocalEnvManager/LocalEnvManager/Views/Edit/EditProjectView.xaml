@@ -1,0 +1,298 @@
+<Window x:Class="LocalEnvManager.Views.EditProjectView"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:cal="http://www.caliburnproject.org"
+        xmlns:converters="clr-namespace:LocalEnvManager.Converters"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:vm="clr-namespace:LocalEnvManager.ViewModels"
+        mc:Ignorable="d"
+        Title="Edit Project"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        WindowStartupLocation="CenterOwner"
+        SizeToContent="Height"
+        Width="1080"
+        MinWidth="900"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        ResizeMode="CanResizeWithGrip"
+        MinHeight="620"
+        d:DataContext="{d:DesignInstance Type=vm:EditProjectViewModel, IsDesignTimeCreatable=False}">
+    <Window.Resources>
+        <converters:EnumBooleanConverter x:Key="EnumBooleanConverter" />
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+    </Window.Resources>
+
+    <Border Background="{StaticResource CardSurfaceBrush}"
+            CornerRadius="16"
+            BorderBrush="{StaticResource CardBorderBrush}"
+            BorderThickness="1"
+            Padding="0"
+            Effect="{StaticResource DialogShadow}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Dialog Header -->
+            <Border Background="{StaticResource HeroGradientBrush}"
+                    CornerRadius="16,16,0,0"
+                    Padding="28,18">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right"
+                            cal:Message.Attach="[Event Click] = [Action Close]"
+                            Style="{StaticResource TitleBarButtonStyle}"
+                            Content="&#xE106;"
+                            FontFamily="Segoe MDL2 Assets"
+                            VerticalAlignment="Center" />
+                    <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="White"
+                               VerticalAlignment="Center"
+                               Text="Edit Project" />
+                </DockPanel>
+            </Border>
+
+            <!-- Dialog Body -->
+            <StackPanel Grid.Row="1" Margin="28,22,28,10">
+                <!-- Project Name -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBlock Text="Project Name" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                    <Button Style="{StaticResource HelpIconButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action HelpProjectName]"
+                            Content="?"
+                            VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBox Style="{StaticResource CompactTextBoxStyle}"
+                         Text="{Binding Project.Name, UpdateSourceTrigger=PropertyChanged}"
+                         materialDesign:HintAssist.Hint="Project name" />
+
+                <!-- Deployment Mode -->
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,8">
+                    <TextBlock Text="Deployment Mode" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                    <Button Style="{StaticResource HelpIconButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action HelpDeploymentMode]"
+                            Content="?"
+                            VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton Style="{StaticResource ModeChoiceRadioStyle}"
+                                 Tag="publish"
+                                 ToolTip="dotnet publish"
+                                 IsChecked="{Binding Project.DeploymentMode, Converter={StaticResource EnumBooleanConverter}, ConverterParameter=DotNetPublish}">
+                        <StackPanel>
+                            <materialDesign:PackIcon Kind="PackageVariantClosed" Width="20" Height="20" HorizontalAlignment="Center" />
+                            <TextBlock Text="publish" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource ModeChoiceRadioStyle}"
+                                 Tag="build"
+                                 ToolTip="dotnet build"
+                                 Margin="8,0,0,0"
+                                 IsChecked="{Binding Project.DeploymentMode, Converter={StaticResource EnumBooleanConverter}, ConverterParameter=DotNetBuild}">
+                        <StackPanel>
+                            <materialDesign:PackIcon Kind="Hammer" Width="20" Height="20" HorizontalAlignment="Center" />
+                            <TextBlock Text="build" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource ModeChoiceRadioStyle}"
+                                 Tag="ps"
+                                 ToolTip="PowerShell command"
+                                 Margin="8,0,0,0"
+                                 IsChecked="{Binding Project.DeploymentMode, Converter={StaticResource EnumBooleanConverter}, ConverterParameter=PowerShellCommand}">
+                        <StackPanel>
+                            <materialDesign:PackIcon Kind="Console" Width="20" Height="20" HorizontalAlignment="Center" />
+                            <TextBlock Text="PowerShell" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton Style="{StaticResource ModeChoiceRadioStyle}"
+                                 Tag="uvicorn"
+                                 ToolTip="uvicorn"
+                                 Margin="8,0,0,0"
+                                 IsChecked="{Binding Project.DeploymentMode, Converter={StaticResource EnumBooleanConverter}, ConverterParameter=Uvicorn}">
+                        <StackPanel>
+                            <materialDesign:PackIcon Kind="RocketLaunchOutline" Width="20" Height="20" HorizontalAlignment="Center" />
+                            <TextBlock Text="uvicorn" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+
+                <!-- Source Path -->
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+                    <TextBlock Text="Source Path" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                    <Button Style="{StaticResource HelpIconButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action HelpSourcePath]"
+                            Content="?"
+                            VerticalAlignment="Center" />
+                </StackPanel>
+                <DockPanel>
+                    <Button DockPanel.Dock="Right"
+                            Style="{StaticResource FolderBrowseButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action BrowseSourceFolder]"
+                            materialDesign:ButtonAssist.CornerRadius="6"
+                            Margin="8,0,0,0">
+                        <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" />
+                    </Button>
+                    <TextBox Style="{StaticResource CompactTextBoxStyle}"
+                             Text="{Binding Project.SourcePath, UpdateSourceTrigger=PropertyChanged}"
+                             materialDesign:HintAssist.Hint="Absolute path to project source / working folder" />
+                </DockPanel>
+
+                <!-- Command -->
+                <StackPanel Visibility="{Binding UsesCommand, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+                        <TextBlock Text="Command" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                        <Button Style="{StaticResource HelpIconButtonStyle}"
+                                cal:Message.Attach="[Event Click] = [Action HelpCommand]"
+                                Content="?"
+                                VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBox Style="{StaticResource CompactTextBoxStyle}"
+                             Text="{Binding Project.Command, UpdateSourceTrigger=PropertyChanged}"
+                             materialDesign:HintAssist.Hint="切换 Deployment Mode 后会自动填入第一个示例；也可以点 ? 查看并复制更多示例" />
+                </StackPanel>
+
+                <!-- Target Path -->
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+                    <TextBlock Text="Target Path" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                    <Button Style="{StaticResource HelpIconButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action HelpTargetPath]"
+                            Content="?"
+                            VerticalAlignment="Center" />
+                </StackPanel>
+                <DockPanel>
+                    <Button DockPanel.Dock="Right"
+                            Style="{StaticResource FolderBrowseButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action BrowseTargetFolder]"
+                            materialDesign:ButtonAssist.CornerRadius="6"
+                            Margin="8,0,0,0">
+                        <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" />
+                    </Button>
+                    <TextBox Style="{StaticResource CompactTextBoxStyle}"
+                             Text="{Binding Project.TargetPath, UpdateSourceTrigger=PropertyChanged}"
+                             materialDesign:HintAssist.Hint="Absolute path to deploy / run directory" />
+                </DockPanel>
+
+                <!-- Backup Folder -->
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+                    <TextBlock Text="Backup Folder" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                    <Button Style="{StaticResource HelpIconButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action HelpBackupFolder]"
+                            Content="?"
+                            VerticalAlignment="Center" />
+                </StackPanel>
+                <DockPanel>
+                    <Button DockPanel.Dock="Right"
+                            Style="{StaticResource FolderBrowseButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action BrowseBackupFolder]"
+                            materialDesign:ButtonAssist.CornerRadius="6"
+                            Margin="8,0,0,0">
+                        <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" />
+                    </Button>
+                    <TextBox Style="{StaticResource CompactTextBoxStyle}"
+                             Text="{Binding Project.BackupFolder, UpdateSourceTrigger=PropertyChanged}"
+                             materialDesign:HintAssist.Hint="Absolute path to the folder copied into target after build" />
+                </DockPanel>
+
+                <!-- IIS AppPool Name -->
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+                    <TextBlock Text="IIS AppPool" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                    <Button Style="{StaticResource HelpIconButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action HelpIisAppPool]"
+                            Content="?"
+                            VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBox Style="{StaticResource CompactTextBoxStyle}"
+                         Text="{Binding Project.IisAppPoolName, UpdateSourceTrigger=PropertyChanged}"
+                         materialDesign:HintAssist.Hint="Optional IIS AppPool name to recycle before publish (e.g. LLMAgentApi)" />
+
+                <!-- Pull Latest -->
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                    <CheckBox IsChecked="{Binding Project.PullLatest, Mode=TwoWay}"
+                              Content="更新前执行 git pull"
+                              ToolTip="启用后，每次更新会先在源目录执行 git pull；失败时停止该项目的后续更新。"
+                              VerticalAlignment="Center" />
+                    <Button Style="{StaticResource HelpIconButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action HelpPullLatest]"
+                            Content="?"
+                            VerticalAlignment="Center" />
+                </StackPanel>
+
+                <!-- Depends On -->
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+                    <TextBlock Text="依赖项目" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                    <Button Style="{StaticResource HelpIconButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action HelpDependsOn]"
+                            Content="?"
+                            VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBox Style="{StaticResource CompactTextBoxStyle}"
+                         Visibility="Collapsed"
+                         Text="{Binding Project.DependsOn, UpdateSourceTrigger=PropertyChanged}"
+                         materialDesign:HintAssist.Hint="以逗号分隔项目名；勾选依赖项目时会先完成依赖，例如 plus-core" />
+
+                <DockPanel>
+                    <Button DockPanel.Dock="Right"
+                            Content="Clear"
+                            cal:Message.Attach="[Event Click] = [Action ClearDependency]"
+                            Style="{StaticResource FolderBrowseButtonStyle}"
+                            Margin="8,0,0,0"
+                            ToolTip="Clear the selected dependency" />
+                    <ComboBox Style="{StaticResource SectionComboBoxStyle}"
+                              ItemsSource="{Binding DependencyOptions}"
+                              DisplayMemberPath="Name"
+                              SelectedValuePath="Name"
+                              SelectedValue="{Binding Project.DependsOn, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                              materialDesign:HintAssist.Hint="Select the project that must complete first" />
+                </DockPanel>
+
+                <!-- Logs Directory -->
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
+                    <TextBlock Text="Logs Directory" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                    <Button Style="{StaticResource HelpIconButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action HelpLogsDirectory]"
+                            Content="?"
+                            VerticalAlignment="Center" />
+                </StackPanel>
+                <DockPanel>
+                    <Button DockPanel.Dock="Right"
+                            Style="{StaticResource FolderBrowseButtonStyle}"
+                            cal:Message.Attach="[Event Click] = [Action BrowseLogsFolder]"
+                            materialDesign:ButtonAssist.CornerRadius="6"
+                            Margin="8,0,0,0">
+                        <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" />
+                    </Button>
+                    <TextBox Style="{StaticResource CompactTextBoxStyle}"
+                             Text="{Binding Project.LogsDirectory, UpdateSourceTrigger=PropertyChanged}"
+                             materialDesign:HintAssist.Hint="留空时按 项目名/源路径/目标路径 自动发现 logs 目录（例如 D:\Plus\Logs\llm-agent-api）" />
+                </DockPanel>
+            </StackPanel>
+
+            <!-- Dialog Footer -->
+            <Border Grid.Row="2" Padding="28,14,28,22"
+                    BorderBrush="{StaticResource CardBorderBrush}"
+                    BorderThickness="0,1,0,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Left"
+                               VerticalAlignment="Center"
+                               FontSize="11"
+                               Foreground="{StaticResource TextTertiaryBrush}"
+                               Text="编辑后会自动保存到磁盘。" />
+                    <StackPanel DockPanel.Dock="Right"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Right">
+                        <Button Content="取消"
+                                cal:Message.Attach="[Event Click] = [Action Close]"
+                                Style="{StaticResource AddTextButtonStyle}" />
+                        <Button Margin="8,0,0,0"
+                                Content="完成"
+                                cal:Message.Attach="[Event Click] = [Action Close]"
+                                Style="{StaticResource PrimaryActionButtonStyle}" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

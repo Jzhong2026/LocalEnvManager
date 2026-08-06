@@ -1,0 +1,100 @@
+<Window x:Class="LocalEnvManager.Views.ShellView"
+        x:Name="ShellWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:cal="http://www.caliburnproject.org"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:vm="clr-namespace:LocalEnvManager.ViewModels"
+        mc:Ignorable="d"
+        Title="Local Environment Manager"
+        Icon="/Assets/app-icon.ico"
+        WindowStyle="None"
+        WindowState="Maximized"
+        AllowsTransparency="False"
+        Background="{StaticResource PageBackgroundBrush}"
+        TextElement.Foreground="{StaticResource TextPrimaryBrush}"
+        TextElement.FontSize="13"
+        FontFamily="Microsoft YaHei UI"
+        cal:Message.Attach="[Event Closing] = [Action OnWindowClosing]"
+        d:DataContext="{d:DesignInstance Type=vm:ShellViewModel, IsDesignTimeCreatable=False}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- ===== Custom Title Bar ===== -->
+        <Border Background="{StaticResource HeroGradientBrush}"
+                Padding="24,14">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button cal:Message.Attach="[Event Click] = [Action MinimizeWindow]"
+                            AutomationProperties.Name="Minimize window"
+                            Style="{StaticResource TitleBarButtonStyle}"
+                            Content="&#xE949;"
+                            FontFamily="Segoe MDL2 Assets" />
+                    <Button cal:Message.Attach="[Event Click] = [Action CloseWindow]"
+                            AutomationProperties.Name="Close window"
+                            Style="{StaticResource TitleBarCloseButtonStyle}"
+                            Content="&#xE106;"
+                            FontFamily="Segoe MDL2 Assets"
+                            Margin="4,0,0,0" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Image Source="/Assets/app-icon.ico"
+                           Width="28" Height="28"
+                           Margin="0,0,10,0"
+                           VerticalAlignment="Center"
+                           RenderOptions.BitmapScalingMode="HighQuality" />
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="White"
+                                   Text="Local Environment Manager" />
+                        <TextBlock FontSize="12" Foreground="#BBFFFFFF" Margin="0,2,0,0"
+                                   Text="Manage local projects by category and run their update flow." />
+                    </StackPanel>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ===== Main Content ===== -->
+        <Grid Grid.Row="1" Margin="24,16,24,12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Top-level tab strip. Three explicit Button elements (not an
+                 ItemsControl — the Caliburn $parent path-traversal can't
+                 reach ShellViewModel from inside a ContentPresenter and
+                 would throw "No target found..." on click). Each button's
+                 DataContext is the IPageViewModel it represents (so the
+                 IsActive DataTrigger in PageTabItemStyle still highlights
+                 the selected tab); the Click handler lives in code-behind
+                 to forward to Host.ActivatePage unambiguously. This is the
+                 only place in ShellView that uses code-behind — see
+                 ShellView.xaml.cs for the reasoning. -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+                <Button x:Name="ManageTabButton"
+                        Style="{StaticResource PageTabItemStyle}"
+                        cal:Message.Attach="[Event Click] = [Action ShowManage]"
+                        Tag="{Binding Host.Pages[0]}"
+                        Content="{Binding Host.Pages[0].DisplayName}" />
+                <Button x:Name="ExecuteTabButton"
+                        Style="{StaticResource PageTabItemStyle}"
+                        cal:Message.Attach="[Event Click] = [Action ShowExecute]"
+                        Tag="{Binding Host.Pages[1]}"
+                        Content="{Binding Host.Pages[1].DisplayName}" />
+                <Button x:Name="LogTabButton"
+                        Style="{StaticResource PageTabItemStyle}"
+                        cal:Message.Attach="[Event Click] = [Action ShowLog]"
+                        Tag="{Binding Host.Pages[2]}"
+                        Content="{Binding Host.Pages[2].DisplayName}" />
+            </StackPanel>
+
+            <!-- Active page (Caliburn auto-resolves each IPageViewModel to its View) -->
+            <ContentControl Grid.Row="1" cal:View.Model="{Binding Host.ActivePage}" />
+        </Grid>
+    </Grid>
+</Window>

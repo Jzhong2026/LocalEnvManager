@@ -1,0 +1,26 @@
+﻿<Application x:Class="LocalEnvManager.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:LocalEnvManager"
+             xmlns:converters="clr-namespace:LocalEnvManager.Converters"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+    <Application.Resources>
+        <ResourceDictionary>
+            <!-- Caliburn creates each page independently, so page resources
+                 must not depend on ShellView being in the visual tree. -->
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+            <converters:InvertBooleanToVisibilityConverter x:Key="InvertBooleanToVisibilityConverter" />
+            <converters:EnumBooleanConverter x:Key="EnumBooleanConverter" />
+            <converters:ExecutionStateToBrushConverter x:Key="ExecutionStateToBrushConverter" />
+            <converters:NotConverter x:Key="NotConverter" />
+            <converters:ErrorTextBrushConverter x:Key="ErrorTextBrushConverter" />
+            <ResourceDictionary.MergedDictionaries>
+                <materialDesign:BundledTheme BaseTheme="Light"
+                                              PrimaryColor="Indigo"
+                                              SecondaryColor="Cyan" />
+                <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesign3.Defaults.xaml" />
+                <ResourceDictionary Source="Themes/Controls.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

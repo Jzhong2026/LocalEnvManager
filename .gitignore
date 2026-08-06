@@ -6,8 +6,11 @@
 ## has more thorough IDE-specific entries.
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/Dotnet.gitignore
+##
+## NOTE: [Bb]in/ and [Oo]bj/ below intentionally ignore every bin/ and obj/
+## directory at any depth (e.g. LocalEnvManager/bin/, LocalEnvManager/obj/).
 
-# Build results
+# Build results — INTENTIONALLY IGNORE obj/ and bin/ at every depth.
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/
@@ -55,3 +58,14 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# --- Local-only dev / debug leftovers (so stray logs, screenshots, and
+#     one-off PowerShell/Python helper scripts never sneak into a commit) ---
+*.log
+*.tmp
+*.bak
+corrupt.txt
+q.txt
+startup.err
+startup.out
+screenshot.png
