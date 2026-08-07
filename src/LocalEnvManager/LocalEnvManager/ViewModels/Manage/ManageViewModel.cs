@@ -18,6 +18,7 @@ namespace LocalEnvManager.ViewModels
         private readonly IProjectCatalog _catalog;
         private readonly IWindowManager _windowManager;
         private ManagedProject? _selectedProject;
+        private bool _isActive;
 
         public ManageViewModel(IProjectCatalog catalog, IWindowManager windowManager)
         {
@@ -30,7 +31,11 @@ namespace LocalEnvManager.ViewModels
 
         public int Order { get; } = 0;
 
-        public new bool IsActive { get; set; }
+        public new bool IsActive
+        {
+            get => _isActive;
+            set => Set(ref _isActive, value);
+        }
 
         public BindableCollection<ProjectCategory> Categories => _catalog.Categories;
 

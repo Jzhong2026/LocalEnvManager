@@ -51,6 +51,7 @@ namespace LocalEnvManager.ViewModels
         private bool _isRunning;
         private CancellationTokenSource? _runCts;
         private bool _isDetailMaximized;
+        private bool _isActive;
 
         public ExecuteViewModel(
             IProjectCatalog catalog,
@@ -88,7 +89,11 @@ namespace LocalEnvManager.ViewModels
         // ===== IPageViewModel =====
         public new string DisplayName { get; } = "执行更新";
         public int Order { get; } = 1;
-        public new bool IsActive { get; set; }
+        public new bool IsActive
+        {
+            get => _isActive;
+            set => Set(ref _isActive, value);
+        }
 
         public void OnActivated()
         {

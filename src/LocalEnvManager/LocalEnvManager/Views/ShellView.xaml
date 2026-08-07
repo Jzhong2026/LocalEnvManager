@@ -69,28 +69,30 @@
                  ItemsControl — the Caliburn $parent path-traversal can't
                  reach ShellViewModel from inside a ContentPresenter and
                  would throw "No target found..." on click). Each button's
-                 DataContext is the IPageViewModel it represents (so the
-                 IsActive DataTrigger in PageTabItemStyle still highlights
-                 the selected tab); the Click handler lives in code-behind
-                 to forward to Host.ActivatePage unambiguously. This is the
-                 only place in ShellView that uses code-behind — see
-                 ShellView.xaml.cs for the reasoning. -->
+                 DataContext is its IPageViewModel so the IsActive DataTrigger
+                 highlights the selected tab; cal:Action.TargetWithoutContext
+                 points action resolution back at ShellViewModel WITHOUT
+                 rewriting the button's DataContext (cal:Action.Target would
+                 overwrite DataContext and break the label/highlight bindings). -->
             <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
                 <Button x:Name="ManageTabButton"
                         Style="{StaticResource PageTabItemStyle}"
+                        DataContext="{Binding Host.Pages[0]}"
+                        cal:Action.TargetWithoutContext="{Binding DataContext, ElementName=ShellWindow}"
                         cal:Message.Attach="[Event Click] = [Action ShowManage]"
-                        Tag="{Binding Host.Pages[0]}"
-                        Content="{Binding Host.Pages[0].DisplayName}" />
+                        Content="{Binding DisplayName}" />
                 <Button x:Name="ExecuteTabButton"
                         Style="{StaticResource PageTabItemStyle}"
+                        DataContext="{Binding Host.Pages[1]}"
+                        cal:Action.TargetWithoutContext="{Binding DataContext, ElementName=ShellWindow}"
                         cal:Message.Attach="[Event Click] = [Action ShowExecute]"
-                        Tag="{Binding Host.Pages[1]}"
-                        Content="{Binding Host.Pages[1].DisplayName}" />
+                        Content="{Binding DisplayName}" />
                 <Button x:Name="LogTabButton"
                         Style="{StaticResource PageTabItemStyle}"
+                        DataContext="{Binding Host.Pages[2]}"
+                        cal:Action.TargetWithoutContext="{Binding DataContext, ElementName=ShellWindow}"
                         cal:Message.Attach="[Event Click] = [Action ShowLog]"
-                        Tag="{Binding Host.Pages[2]}"
-                        Content="{Binding Host.Pages[2].DisplayName}" />
+                        Content="{Binding DisplayName}" />
             </StackPanel>
 
             <!-- Active page (Caliburn auto-resolves each IPageViewModel to its View) -->

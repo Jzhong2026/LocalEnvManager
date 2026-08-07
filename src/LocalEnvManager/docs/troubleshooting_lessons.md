@@ -21,6 +21,8 @@
 | 11 | dotnet build 失败:PowerShell 进程持锁 DLL | 工具链 |
 | 12 | Release publish 失败:DLL 被当前 PowerShell 锁定 | 工具链 |
 | 13 | Caliburn.Micro `async Task` action 异常被吞 | Caliburn.Micro 反射调用 |
+| 14 | 顶部 Tab 选中无高亮 | Caliburn.Micro `IPageViewModel.IsActive` 未通知 |
+| 15 | Tab 选中高亮太弱、用户看不出区别 | 样式 / 视觉对比度 |
 
 ---
 
@@ -421,6 +423,104 @@ private async Task StopProjectCoreAsync(ManagedProject project)
 
 **影响文件**:
 - `ViewModels/Execute/ExecuteViewModel.cs`(StopProject 包成同步 void)
+
+---
+
+## 14. 顶部 Tab 选中无高亮
+
+**症状**:顶部三个 tab(项目管理 / 执行更新 / 运行日志)点哪个都切换 ContentControl 内容,但**点中的按钮没有任何视觉反馈** —— 背景不变、字色不变、字重不变。看着像是「点了没生效」(其实页已经切了)。
+
+**根因**:`PageTabItemStyle`(Themes/Controls.xaml)靠 `DataTrigger` 监听 `Tag.IsActive` 来加高亮:
+
+````xml
+<DataTrigger Binding="{Binding Tag.IsActive, RelativeSource={RelativeSource TemplatedParent}}" Value="True">
+    <Setter TargetName="TabBorder" Property="Background" Value="{StaticResource PrimaryLightBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource PrimaryDarkBrush}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+</DataTrigger>
+````
+
+`ShellView.xaml` 把每个按钮的 `Tag` 绑到对应的 `IPageViewModel`:
+
+````xml
+<Button ... Tag="{Binding Host.Pages[0]}" Content="{Binding Host.Pages[0].DisplayName}" />
+````
+
+切换 tab 时,`ContentHostViewModel.ActivePage` setter 翻每个 page 的 `IsActive`:
+
+````csharp
+foreach (var page in Pages)
+{
+    var active = page == value;
+    if (page.IsActive != active)
+    {
+        page.IsActive = active;
+    }
+}
+````
+
+但三个 page VM 的 `IsActive` **全是裸 auto-property,没有任何通知**:
+
+````csharp
+public new bool IsActive { get; set; }   // ← 写了不通知
+````
+
+`new` 是必须的(要 hide `Screen.IsActive`),但需要 `Set(ref ..., value)` 才会触发 `PropertyChanged`。结果:
+- `IsActive` 字段值确实翻了;
+- `DataTrigger` 监听 `Tag.IsActive` → 永远听不到变化 → 永远不高亮。
+
+**修复**:三个 page VM 都改成标准 notifying property:
+
+````csharp
+private bool _isActive;
+
+public new bool IsActive
+{
+    get => _isActive;
+    set => Set(ref _isActive, value);
+}
+````
+
+`Set(ref ...)` 来自 `Screen` 基类,内部会比较新旧值,变化时自动 `NotifyOfPropertyChange(nameof(IsActive))`,触发所有 `Binding` / `DataTrigger` 重新求值。
+
+**关键经验**:
+- **裸 `new` auto-property 不会通知**。`Screen` / `PropertyChangedBase` 基类只对 `Set(ref ...)` 调用发事件。
+- 任何 UI 上需要响应的属性(哪怕只是布尔翻转),必须走 `Set(ref ..., value)` 或显式 `NotifyOfPropertyChange`。
+- 决定性测试:UI 状态不更新 → 用 Snoop/WPF Inspector 看 binding 值有没有变化 → 没变化就是 VM 不通知,有变化就是 binding 路径错。
+
+**影响文件**:
+- `ViewModels/Manage/ManageViewModel.cs`(新增 `_isActive` 字段 + `Set` setter)
+- `ViewModels/Execute/ExecuteViewModel.cs`(同上)
+- `ViewModels/Log/LogViewModel.cs`(同上)
+
+---
+
+## 15. Tab 选中高亮太弱、用户看不出区别
+
+**症状**:修了 #14 之后,Tag.IsActive 通知通了,DataTrigger 也能触发了,但**用户反馈** 「点哪个都看不出区别」—— 实际是**有**高亮(浅蓝背景 + 深蓝字 + SemiBold),不过对比度太弱,看着像没生效。
+
+**根因**:原来的视觉反馈就三件套:
+- 背景:`#DBEAFE`(PrimaryLightBrush,极浅蓝) vs 页面背景 `#F7F9FC`(几乎一样的浅灰)
+- 字色:`#1D4ED8` vs `#475569`(都偏暗,亮度差很小)
+- 字重:`SemiBold` vs `Medium`(区别细微)
+
+三项加在一起,在普通屏幕上肉眼几乎分辨不出来 —— 点了之后「好像」没变。
+
+**修复**:在 `PageTabItemStyle` 里把激活态改成**强对比 + 形态区分**:
+
+1. **背景**:换成 `PrimaryBrush` 实色 `#3B82F6`(主蓝),与页面背景 `#F7F9FC` 形成强对比。
+2. **字色**:白色 `White`,字重 `Bold`。
+3. **底部 accent bar**:激活的 tab 下方加一条 3px `PrimaryDarkBrush` 颜色条 + 圆角。形态上的标记 —— 即使色弱用户也能看到。
+4. **阴影**:激活的 tab 套 `DialogShadow`,与未激活的扁平 tab 形成「浮起来」的视觉差。
+5. **hover**:不激活的 tab hover 时给 `#F1F5F9` 背景 + `TextPrimaryBrush` 字色,跟激活态的蓝色块有明显距离。
+
+**关键经验**:
+- 设计 UI 状态时,不要只靠"颜色微调"。**至少要有 1 个形态上的区分**(下划线、accent bar、阴影、边框)作为辅证。
+- 颜色对比度至少 AA(普通文本 4.5:1,UI 元素 3:1)。`#DBEAFE` 配 `#F7F9FC` 不到 1.2:1,远低于门槛。
+- 用户报"看不出区别" → 第一反应是 **加强视觉对比**,不是 second-guess 业务逻辑。
+
+**影响文件**:
+- `Themes/Controls.xaml`(`PageTabItemStyle` 重写)
 
 ---
 
