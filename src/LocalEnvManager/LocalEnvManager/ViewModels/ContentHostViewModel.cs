@@ -21,7 +21,7 @@ namespace LocalEnvManager.ViewModels
         public ContentHostViewModel(
             ManageViewModel manage,
             ExecuteViewModel execute,
-            LogViewModel log,
+            RunLogsViewModel runLogs,
             IEventAggregator events)
         {
             _events = events;
@@ -31,7 +31,7 @@ namespace LocalEnvManager.ViewModels
             {
                 manage,
                 execute,
-                log
+                runLogs
             };
             ActivePage = Pages.OrderBy(p => p.Order).First();
         }

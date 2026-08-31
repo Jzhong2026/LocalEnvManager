@@ -39,7 +39,7 @@ namespace LocalEnvManager
             // Per-request view-models — pages and the shell itself.
             _container.PerRequest<ManageViewModel>();
             _container.PerRequest<ExecuteViewModel>();
-            _container.PerRequest<LogViewModel>();
+            _container.PerRequest<RunLogsViewModel>();
             _container.PerRequest<ContentHostViewModel>();
             _container.PerRequest<ShellViewModel>();
         }

@@ -470,7 +470,11 @@ CornerRadius="4" Padding="0">
 
 <!-- ===== Tabs ===== -->
 <!-- Page-tab item rendered as a flat button. The Button's DataContext is its
-     IPageViewModel, so the DataTrigger can bind directly to IsActive. -->
+     IPageViewModel, so the DataTrigger can bind directly to IsActive.
+     Visual states: inactive (flat / tertiary text) → hover (subtle gray +
+     primary text) → active (solid PrimaryBrush + white Bold + accent bar +
+     DialogShadow). Trigger order matters: IsActive is listed after IsMouseOver
+     so an active tab stays branded even while hovered. -->
 <Style x:Key="PageTabItemStyle" TargetType="Button">
 <Setter Property="FontWeight" Value="Medium" />
 <Setter Property="FontSize" Value="14" />
@@ -505,9 +509,11 @@ CornerRadius="4" Padding="0">
 		<Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
 	</Trigger>
 	<DataTrigger Binding="{Binding IsActive}" Value="True">
-		<Setter Property="Foreground" Value="{StaticResource PrimaryDarkBrush}" />
-		<Setter Property="FontWeight" Value="SemiBold" />
-		<Setter TargetName="ActiveBar" Property="Background" Value="{StaticResource PrimaryBrush}" />
+		<Setter TargetName="TabBorder" Property="Background" Value="{StaticResource PrimaryBrush}" />
+		<Setter Property="Foreground" Value="White" />
+		<Setter Property="FontWeight" Value="Bold" />
+		<Setter TargetName="TabBorder" Property="Effect" Value="{StaticResource DialogShadow}" />
+		<Setter TargetName="ActiveBar" Property="Background" Value="{StaticResource PrimaryDarkBrush}" />
 	</DataTrigger>
 </ControlTemplate.Triggers>
 </ControlTemplate>

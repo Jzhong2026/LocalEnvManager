@@ -23,6 +23,7 @@
 | 13 | Caliburn.Micro `async Task` action 异常被吞 | Caliburn.Micro 反射调用 |
 | 14 | 顶部 Tab 选中无高亮 | Caliburn.Micro `IPageViewModel.IsActive` 未通知 |
 | 15 | Tab 选中高亮太弱、用户看不出区别 | 样式 / 视觉对比度 |
+| 16 | Log tab 源码从不在 git 里 — fresh clone build 挂 | `.gitignore` 过宽 |
 
 ---
 
@@ -491,7 +492,7 @@ public new bool IsActive
 **影响文件**:
 - `ViewModels/Manage/ManageViewModel.cs`(新增 `_isActive` 字段 + `Set` setter)
 - `ViewModels/Execute/ExecuteViewModel.cs`(同上)
-- `ViewModels/Log/LogViewModel.cs`(同上)
+- `ViewModels/RunLogs/RunLogsViewModel.cs`(同上)
 
 ---
 
@@ -521,6 +522,45 @@ public new bool IsActive
 
 **影响文件**:
 - `Themes/Controls.xaml`(`PageTabItemStyle` 重写)
+
+---
+
+## 16. Log tab 源码从不在 git 里 — fresh clone build 挂
+
+**症状**:把 `1a83d59 fix style issue` 推送之后,任何人(或 CI)从 `Jzhong2026/LocalEnvManager` fresh clone,跑 `dotnet build` 都会挂:
+
+```
+error CS0246: 未能找到类型或命名空间名"LogViewModel"(是否缺少 using 指令或程序集引用?)
+```
+
+**根因**:`src/LocalEnvManager/LocalEnvManager/ViewModels/Log/LogViewModel.cs` 和 `Views/Log/LogView.xaml` 这两个文件**从来就没进过 git**(`git log --all --diff-filter=A` 返回空)。但 `AppBootstrapper.cs` 在 IoC 容器里注册了它、`ContentHostViewModel.cs` 通过构造器注入它、`ShellView.xaml` 的 `LogTabButton` 把它绑到了 `Host.Pages[2]`。本地能 build 纯粹因为这两个文件**正好**留在工作目录里。
+
+**为什么 git 一直看不见它们**:`.gitignore:26` 写的是 `[Ll]og/` —— 大小写都能匹配,本意是忽略 build 输出的 `Log/` 目录(Serilog 之类的运行时日志目录),但**也匹配了**合法的源目录 `ViewModels/Log/` 和 `Views/Log/`。`git check-ignore -v` 一查就明白:
+
+```
+.gitignore:26:[Ll]og/  src/LocalEnvManager/LocalEnvManager/ViewModels/Log/LogViewModel.cs
+.gitignore:26:[Ll]og/  src/LocalEnvManager/LocalEnvManager/Views/Log/LogView.xaml
+```
+
+`.gitignore` 是 git 的硬墙 —— `git add` / `git add -f` 都加不进去的 ignore 文件,本地 IDE 也搜不到,新人拉代码后 build 才看到坑。
+
+**修复**:不靠 `.gitignore` 字符串修补(容易踩下一个同名目录),直接把源码目录改名成不会被误伤的 `RunLogs/`:
+- `ViewModels/Log/LogViewModel.cs` → `ViewModels/RunLogs/RunLogsViewModel.cs`(类名同步)
+- `Views/Log/LogView.xaml` → `Views/RunLogs/RunLogsView.xaml`
+- `AppBootstrapper.cs:42`、`ContentHostViewModel.cs:24`、`ExecuteViewModel.cs:28`(cref 注释)同步改
+- Caliburn.Micro 约定解析 `RunLogsViewModel` → `RunLogsView`,无需手动注册 ViewLocator
+
+**关键经验**:
+- **`.gitignore` 过宽是隐形炸弹**:本机 build 永远过、push 也永远过,只有别人拉代码才挂。**每个新加的源目录第一次 commit 前,跑一次 `git check-ignore -v <file>`** 确认它没被误伤。
+- **CI 必须从 clean clone 跑一遍 `dotnet build`**:本地工作目录里的"残留文件"会骗过所有人。哪怕 push 之后立刻在另一台机器 clone 一次重 build 都能 catch 这种问题。
+- **同样的字面量(`.Log/`)同时用于 build 输出和源目录,几乎一定会撞** —— `.gitignore` 命名要规避真实源目录常用词,或者用更精确的路径(比如 `bin/Log/`、`obj/Log/`、`[Bb]in/**/[Ll]og/`)。
+
+**影响文件**:
+- `ViewModels/RunLogs/RunLogsViewModel.cs`(原 `ViewModels/Log/LogViewModel.cs`,重命名)
+- `Views/RunLogs/RunLogsView.xaml`(原 `Views/Log/LogView.xaml`,重命名)
+- `AppBootstrapper.cs`(注册类型改名)
+- `ViewModels/ContentHostViewModel.cs`(构造器参数改名)
+- `ViewModels/Execute/ExecuteViewModel.cs`(`<see cref>` 改名)
 
 ---
 

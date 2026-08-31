@@ -25,7 +25,7 @@ namespace LocalEnvManager.ViewModels
     ///
     /// Communication: in for data (the catalog singleton), out for messages
     /// (toggle maximize, run/cancel/refresh, project-selection). The view-model
-    /// never references <see cref="ManageViewModel"/> or <see cref="LogViewModel"/>.
+    /// never references <see cref="ManageViewModel"/> or <see cref="RunLogsViewModel"/>.
     /// </summary>
     public sealed class ExecuteViewModel : Screen, IPageViewModel,
         IHandle<RefreshBranchesMessage>,

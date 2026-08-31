@@ -70,10 +70,17 @@
                  reach ShellViewModel from inside a ContentPresenter and
                  would throw "No target found..." on click). Each button's
                  DataContext is its IPageViewModel so the IsActive DataTrigger
-                 highlights the selected tab; cal:Action.TargetWithoutContext
-                 points action resolution back at ShellViewModel WITHOUT
-                 rewriting the button's DataContext (cal:Action.Target would
-                 overwrite DataContext and break the label/highlight bindings). -->
+                 highlights the selected tab. Action resolution needs two
+                 overrides on top of the rewritten DataContext:
+                   1. cal:Action.TargetWithoutContext points the message
+                      back at ShellViewModel WITHOUT overwriting the
+                      button's DataContext (cal:Action.Target would
+                      overwrite DataContext and break the label/highlight
+                      bindings).
+                   2. ElementName=ShellWindow sidesteps the broken $parent
+                      traversal — the action source is the window's own
+                      DataContext (ShellViewModel), not the rewritten
+                      page-VM DataContext the button now carries. -->
             <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
                 <Button x:Name="ManageTabButton"
                         Style="{StaticResource PageTabItemStyle}"
