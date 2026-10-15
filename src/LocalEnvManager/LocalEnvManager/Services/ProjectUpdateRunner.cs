@@ -99,12 +99,16 @@ namespace LocalEnvManager.Services
                 Report(logProgress, $"[{project.Name}] ✓ git pull completed.");
             }
 
-            // Step 2: if an AppPool is configured, always recycle it before running
-            // the deployment command so IIS releases file locks regardless of mode.
-            IReadOnlyList<string> heldAppPoolsForCommand = Array.Empty<string>();
+            // Step 2: stop a configured AppPool once, and leave it stopped through
+            // both the deploy command and the backup-folder copy. Starting it in
+            // between lets w3wp lock the DLLs the copy is about to overwrite.
+            // Restore happens exactly once in the finally below — including when
+            // the command fails or the user cancels — and does not use the
+            // caller's cancellation token.
+            IReadOnlyList<string> heldAppPools = Array.Empty<string>();
             if (!string.IsNullOrWhiteSpace(project.IisAppPoolName))
             {
-                heldAppPoolsForCommand = await StopAppPoolsHoldingOutputAsync(
+                heldAppPools = await StopAppPoolsHoldingOutputAsync(
                     project.TargetPath,
                     project,
                     project.Name,
@@ -112,75 +116,73 @@ namespace LocalEnvManager.Services
                     cancellationToken);
             }
 
-            ProjectExecutionResult commandResult;
+            var result = new ProjectExecutionResult(false, $"{project.Name} failed.");
             try
             {
-                commandResult = project.DeploymentMode switch
+                try
                 {
-                    DeploymentMode.DotNetPublish => await ExecuteDotNetAsync(project, "publish", workingDirectory, logProgress, cancellationToken),
-                    DeploymentMode.DotNetBuild => await ExecuteDotNetAsync(project, "build", workingDirectory, logProgress, cancellationToken),
-                    DeploymentMode.PowerShellCommand => await ExecutePowerShellCommandAsync(project, workingDirectory, logProgress, cancellationToken),
-                    DeploymentMode.Uvicorn => await ExecuteUvicornAsync(project, workingDirectory, logProgress, cancellationToken),
-                    _ => new ProjectExecutionResult(false, $"Unsupported deployment mode: {project.DeploymentMode}.")
-                };
-            }
-            catch (Exception ex)
-            {
-                return new ProjectExecutionResult(false, $"{project.Name} failed: {ex.Message}");
+                    result = project.DeploymentMode switch
+                    {
+                        DeploymentMode.DotNetPublish => await ExecuteDotNetAsync(project, "publish", workingDirectory, logProgress, cancellationToken),
+                        DeploymentMode.DotNetBuild => await ExecuteDotNetAsync(project, "build", workingDirectory, logProgress, cancellationToken),
+                        DeploymentMode.PowerShellCommand => await ExecutePowerShellCommandAsync(project, workingDirectory, logProgress, cancellationToken),
+                        DeploymentMode.Uvicorn => await ExecuteUvicornAsync(project, workingDirectory, logProgress, cancellationToken),
+                        _ => new ProjectExecutionResult(false, $"Unsupported deployment mode: {project.DeploymentMode}.")
+                    };
+                }
+                catch (Exception ex)
+                {
+                    result = new ProjectExecutionResult(false, $"{project.Name} failed: {ex.Message}");
+                }
+
+                // Step 3: copy backup folder -> target while the pool is still
+                // stopped. Skip for uvicorn — it already synced before launching
+                // the long-running service. If the first stop did not take a pool
+                // down, try once more here; do not stop a pool we are already holding.
+                if (result.Success && project.DeploymentMode != DeploymentMode.Uvicorn)
+                {
+                    if (heldAppPools.Count == 0 && !string.IsNullOrWhiteSpace(project.IisAppPoolName))
+                    {
+                        heldAppPools = await StopAppPoolsHoldingOutputAsync(
+                            project.TargetPath,
+                            project,
+                            project.Name,
+                            logProgress,
+                            cancellationToken);
+                    }
+
+                    Report(logProgress, $"[{project.Name}] → syncing backup folder to target");
+                    var sync = await SyncBackupToTargetAsync(project);
+                    Report(logProgress,
+                        sync.Success
+                            ? sync.Message.StartsWith("Skipped", StringComparison.Ordinal)
+                                ? $"[{project.Name}] ⊘ backup sync skipped (paths not configured)"
+                                : $"[{project.Name}] ✓ {sync.Message}"
+                            : $"[{project.Name}] ✗ {sync.Message}");
+                    result = Combine(result.Message, sync);
+                }
             }
             finally
             {
-                await StartAppPoolsAsync(heldAppPoolsForCommand, project.Name, logProgress, cancellationToken);
-            }
-
-            if (!commandResult.Success)
-            {
-                return commandResult;
-            }
-
-            // Step 3: copy backup folder -> target. Skip for uvicorn — it already synced
-            // before launching the long-running service.
-            if (project.DeploymentMode != DeploymentMode.Uvicorn)
-            {
-                Report(logProgress, $"[{project.Name}] → syncing backup folder to target");
-                IReadOnlyList<string> heldAppPoolsForSync = Array.Empty<string>();
-                if (!string.IsNullOrWhiteSpace(project.IisAppPoolName))
-                {
-                    // Keep target sync away from IIS file locks. Even when dotnet
-                    // command execution itself succeeds, the follow-up copy can fail if
-                    // w3wp grabs DLLs again before sync starts.
-                    heldAppPoolsForSync = await StopAppPoolsHoldingOutputAsync(
-                        project.TargetPath,
-                        project,
-                        project.Name,
-                        logProgress,
-                        cancellationToken);
-                }
-
-                ProjectExecutionResult sync;
+                ProjectExecutionResult restore;
                 try
                 {
-                    sync = await SyncBackupToTargetAsync(project);
+                    restore = await StartAppPoolsAsync(heldAppPools, project.Name, logProgress);
                 }
-                finally
+                catch (Exception ex)
                 {
-                    await StartAppPoolsAsync(
-                        heldAppPoolsForSync,
-                        project.Name,
-                        logProgress,
-                        cancellationToken);
+                    var message = $"{project.Name}: 重新启动 IIS 应用程序池时出错：{ex.Message}";
+                    Report(logProgress, $"[{project.Name}] ✗ {message}");
+                    restore = new ProjectExecutionResult(false, message);
                 }
 
-                Report(logProgress,
-                    sync.Success
-                        ? sync.Message.StartsWith("Skipped", StringComparison.Ordinal)
-                            ? $"[{project.Name}] ⊘ backup sync skipped (paths not configured)"
-                            : $"[{project.Name}] ✓ {sync.Message}"
-                        : $"[{project.Name}] ✗ {sync.Message}");
-                return Combine(commandResult.Message, sync);
+                if (!restore.Success)
+                {
+                    result = new ProjectExecutionResult(false, JoinMessages(result.Message, restore.Message));
+                }
             }
 
-            return commandResult;
+            return result;
         }
 
         // -------- stop --------
@@ -538,10 +540,16 @@ namespace LocalEnvManager.Services
                     ? $"[{project.Name}] ✓ dotnet {defaultVerb} succeeded ({preview})"
                     : $"[{project.Name}] ✗ dotnet {defaultVerb} failed");
 
-            // Always restart the app pools we stopped, even on failure — otherwise
-            // we'd leave the site offline. A failed publish means the old binaries
-            // are still on disk, so the site is at worst unchanged, not broken.
-            await StartAppPoolsAsync(heldAppPools, project.Name, logProgress, cancellationToken);
+            // Pools stopped here are path-matched ones, used only when this project
+            // has no IisAppPoolName. A configured pool is held by ExecuteAsync
+            // until after the backup sync, so it must not be started here.
+            // A failed start fails the run; swallowing it used to log success
+            // while leaving the site offline.
+            var restore = await StartAppPoolsAsync(heldAppPools, project.Name, logProgress);
+            if (!restore.Success)
+            {
+                return new ProjectExecutionResult(false, JoinMessages(result.Message, restore.Message));
+            }
 
             return result;
         }
@@ -1143,7 +1151,7 @@ namespace LocalEnvManager.Services
         // IIS AppPool management. The build target is often the physical path of an
         // IIS site, so MSBuild's overwrite step collides with w3wp.exe holding the
         // DLLs open. Strategy (in order of preference):
-        //   1. If the project has an IisAppPoolName configured, recycle that pool
+        //   1. If the project has an IisAppPoolName configured, stop that pool
         //      directly via appcmd (precise, only affects the named pool).
         //   2. If that fails (insufficient permissions) OR no name is configured,
         //      enumerate IIS app pools and pick the ones whose physical paths
@@ -1152,8 +1160,9 @@ namespace LocalEnvManager.Services
         //      an exclusive FileShare.None probe), ask the user to elevate via UAC
         //      and kill them. IIS respawns workers on the next request, so this
         //      is a transient blip, not an outage.
-        // Returns the list of AppPool names we stopped so the caller can restart
-        // them once publish completes (or sentinels like "__w3wp_killed__").
+        // Returns the list of AppPool names we stopped so the caller can start
+        // them again after both publish and the backup sync (or sentinels like
+        // "__w3wp_killed__").
         private async Task<IReadOnlyList<string>> StopAppPoolsHoldingOutputAsync(
             string? outputDir,
             Models.ManagedProject project,
@@ -1169,7 +1178,9 @@ namespace LocalEnvManager.Services
                 {
                     var pool = project.IisAppPoolName.Trim();
                     Report(logProgress, $"[{projectName}] → 使用配置的 IIS 应用池 {pool}");
-                    if (await TryAppPoolActionAsync(pool, "stop", projectName, logProgress, cancellationToken))
+                    // None: a cancel must not abandon appcmd after it has stopped
+                    // the pool, or the pool would be missing from the restore list.
+                    if (await TryAppPoolActionAsync(pool, "stop", projectName, logProgress, CancellationToken.None))
                     {
                         stopped.Add(pool);
                     }
@@ -1178,8 +1189,8 @@ namespace LocalEnvManager.Services
                         // appcmd failed (insufficient permissions). Try to elevate
                         // so the user just has to click "Yes" on the UAC prompt
                         // instead of manually running appcmd.
-                        Report(logProgress, $"[{projectName}] → 当前权限不足回收应用池，尝试通过 UAC 提权");
-                        if (await TryElevatedAppPoolActionAsync(pool, "stop", projectName, logProgress, cancellationToken))
+                        Report(logProgress, $"[{projectName}] → 当前权限不足，无法停止应用程序池，尝试通过 UAC 提权");
+                        if (await TryElevatedAppPoolActionAsync(pool, "stop", projectName, logProgress, CancellationToken.None))
                             stopped.Add(pool);
                     }
                 }
@@ -1198,7 +1209,7 @@ namespace LocalEnvManager.Services
                     {
                         foreach (var appPool in matches)
                         {
-                            if (await TryAppPoolActionAsync(appPool, "stop", projectName, logProgress, cancellationToken))
+                            if (await TryAppPoolActionAsync(appPool, "stop", projectName, logProgress, CancellationToken.None))
                                 stopped.Add(appPool);
                         }
                     }
@@ -1265,34 +1276,52 @@ namespace LocalEnvManager.Services
         // only an explicitly configured or path-matched application pool.
         private static bool CanUseGlobalIisReset() => false;
 
-        // Bring IIS back up after publish. The recycle path needs nothing (the
-        // pool is already running). The iisreset-stop path needs us to start
-        // W3SVC again — do that via UAC-elevated PowerShell, same as the stop.
-        // The w3wp-kill path needs nothing (IIS respawns workers on the next
-        // request automatically).
-        private async Task StartAppPoolsAsync(
+        // Start every pool we stopped. The caller's cancellation token is
+        // intentionally not used: a cancel during publish must still bring the
+        // site back, and a throw here used to escape the caller's finally and
+        // leave the pool Stopped. Returns failure when any start did not succeed
+        // so the caller can fail the run instead of logging a false success.
+        private async Task<ProjectExecutionResult> StartAppPoolsAsync(
             IReadOnlyList<string> appPoolNames,
             string projectName,
-            IProgress<string>? logProgress,
-            CancellationToken cancellationToken)
+            IProgress<string>? logProgress)
         {
+            if (appPoolNames.Count == 0)
+                return new ProjectExecutionResult(true, string.Empty);
+
+            var failures = new List<string>();
             foreach (var name in appPoolNames)
             {
-                if (name == "__iisreset_stopped__")
+                try
                 {
-                    Report(logProgress, $"[{projectName}] → 正在通过 UAC 提权恢复 IIS 服务 (iisreset /start)");
-                    await TryElevatedIisResetStartAsync(projectName, logProgress, cancellationToken);
+                    if (name == "__iisreset_stopped__")
+                    {
+                        Report(logProgress, $"[{projectName}] → 正在通过 UAC 提权恢复 IIS 服务 (iisreset /start)");
+                        await TryElevatedIisResetStartAsync(projectName, logProgress, CancellationToken.None);
+                    }
+                    else if (name == "__w3wp_killed__")
+                    {
+                        Report(logProgress, $"[{projectName}] → IIS worker 已被结束，下次请求时 IIS 会自动重启");
+                    }
+                    else if (!string.IsNullOrEmpty(name))
+                    {
+                        if (!await TryAppPoolActionAsync(name, "start", projectName, logProgress, CancellationToken.None))
+                            failures.Add(name);
+                    }
                 }
-                else if (name == "__w3wp_killed__")
+                catch (Exception ex)
                 {
-                    Report(logProgress, $"[{projectName}] → IIS worker 已被结束，下次请求时 IIS 会自动重启");
-                }
-                else if (!string.IsNullOrEmpty(name))
-                {
-                    await TryAppPoolActionAsync(name, "start", projectName, logProgress, cancellationToken);
-                    Report(logProgress, $"[{projectName}] → 应用池 {name} 已通过 recycle 保持运行（无需额外操作）");
+                    failures.Add(name);
+                    Report(logProgress, $"[{projectName}] → 启动 IIS 应用程序池 {name} 失败：{ex.Message}");
                 }
             }
+
+            if (failures.Count == 0)
+                return new ProjectExecutionResult(true, string.Empty);
+
+            var message = $"{projectName}: 未能重新启动 IIS 应用程序池 {string.Join(", ", failures)}。站点可能仍处于停止状态。";
+            Report(logProgress, $"[{projectName}] ✗ {message}");
+            return new ProjectExecutionResult(false, message);
         }
 
         // Enumerate IIS AppPools and pick the ones whose physical paths equal (or
@@ -1358,10 +1387,11 @@ namespace LocalEnvManager.Services
             return found;
         }
 
-        // Recycle a single IIS AppPool by name. Recycle is preferred over stop+start
-        // because it gracefully drains in-flight requests, spawns a fresh worker
-        // alongside the old one, then shuts the old worker down — the site is
-        // never fully offline. Returns true on success so the caller can log it.
+        // Stop or start a single IIS AppPool by name via appcmd. The action string
+        // is "stop" or "start", and the log line says which one ran. Returns true only when
+        // appcmd exits 0. A cancelled settle delay after that exit does not turn
+        // a successful action into a failure — otherwise a stopped pool would be
+        // dropped from the caller's restart list.
         private static async Task<bool> TryAppPoolActionAsync(
             string appPoolName,
             string action,
@@ -1385,13 +1415,14 @@ namespace LocalEnvManager.Services
                 await p.WaitForExitAsync(cancellationToken);
                 if (p.ExitCode == 0)
                 {
-                    Report(logProgress, $"[{projectName}] → 已回收 IIS 应用池 {appPoolName}（释放文件锁，IIS 自动拉起新 worker）");
-                    // Give the old worker a moment to fully exit so the kernel
-                    // releases the file handles before MSBuild tries to overwrite.
-                    await Task.Delay(800, cancellationToken);
+                    Report(logProgress, $"[{projectName}] → {AppPoolActionVerb(action)} IIS 应用程序池 {appPoolName}");
+                    // After stop, give the old worker a moment to release file
+                    // handles. After start this is just a short settle. Cancelling
+                    // the wait must not undo the successful appcmd exit.
+                    await DelayBestEffortAsync(cancellationToken);
                     return true;
                 }
-                Report(logProgress, $"[{projectName}] → appcmd recycle 退出码 {p.ExitCode}（可能需要管理员权限）");
+                Report(logProgress, $"[{projectName}] → appcmd {action} 退出码 {p.ExitCode}（可能需要管理员权限）");
             }
             catch (Exception ex)
             {
@@ -1441,8 +1472,8 @@ exit $LASTEXITCODE
                 await p.WaitForExitAsync(cancellationToken);
                 if (p.ExitCode == 0 && File.Exists(okFlag))
                 {
-                    Report(logProgress, $"[{projectName}] → 已回收应用池 {appPoolName}");
-                    await Task.Delay(800, cancellationToken);
+                    Report(logProgress, $"[{projectName}] → {AppPoolActionVerb(action)} IIS 应用程序池 {appPoolName}");
+                    await DelayBestEffortAsync(cancellationToken);
                     return true;
                 }
                 var stderr = await p.StandardError.ReadToEndAsync(cancellationToken);
@@ -1647,6 +1678,33 @@ exit 0
         private static void TryDelete(string path)
         {
             try { if (File.Exists(path)) File.Delete(path); } catch { }
+        }
+
+        private static string AppPoolActionVerb(string action) => action switch
+        {
+            "stop" => "已停止",
+            "start" => "已启动",
+            _ => action
+        };
+
+        // 800ms is long enough for a stopped w3wp to drop DLL handles on a local
+        // disk, and short enough that publish is not noticeably slower.
+        private static async Task DelayBestEffortAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                await Task.Delay(800, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        private static string JoinMessages(string first, string second)
+        {
+            if (string.IsNullOrWhiteSpace(first)) return second;
+            if (string.IsNullOrWhiteSpace(second)) return first;
+            return $"{first}\n{second}";
         }
 
         // Returns true if any w3wp.exe process is currently holding at least one
