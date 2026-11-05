@@ -19,6 +19,11 @@ namespace LocalEnvManager.ViewModels
         IHandle<ProjectRunStartedMessage>,
         IHandle<ProjectRunFinishedMessage>
     {
+        /// <summary>Upper bound for one project's in-memory run log. A single build
+        /// can emit tens of thousands of lines; the on-disk runtime log keeps the
+        /// full history, so the UI can safely drop the oldest entries.</summary>
+        public const int MaxEntriesPerProject = 5000;
+
         private readonly IProjectCatalog _catalog;
         private readonly IEventAggregator _events;
         private bool _isActive;
@@ -62,9 +67,8 @@ namespace LocalEnvManager.ViewModels
             var tab = FindTab(message.ProjectId);
             if (tab is not null && !string.IsNullOrWhiteSpace(message.Line))
             {
-                tab.Entries.Add(new LogEntry(
-                    message.IsError ? LogEntry.LogLevel.Error : LogEntry.LogLevel.Info,
-                    message.Line));
+                tab.Entries.Add(new LogEntry(LogEntry.LogLevel.Info, message.Line));
+                Trim(tab);
             }
             return Task.CompletedTask;
         }
@@ -86,11 +90,24 @@ namespace LocalEnvManager.ViewModels
             var tab = FindTab(message.ProjectId);
             if (tab is not null)
             {
-                tab.Entries.Add(new LogEntry(
-                    message.Success ? LogEntry.LogLevel.Success : LogEntry.LogLevel.Error,
-                    message.Message));
+                var level = message.Cancelled
+                    ? LogEntry.LogLevel.Info
+                    : message.Success
+                        ? LogEntry.LogLevel.Success
+                        : LogEntry.LogLevel.Error;
+                tab.Entries.Add(new LogEntry(level, message.Message));
+                Trim(tab);
             }
             return Task.CompletedTask;
+        }
+
+        private static void Trim(ProjectLogTab tab)
+        {
+            var overflow = tab.Entries.Count - MaxEntriesPerProject;
+            if (overflow <= 0) return;
+
+            var drop = tab.Entries.Take(overflow).ToList();
+            tab.Entries.RemoveRange(drop);
         }
 
         public void ClearLog()

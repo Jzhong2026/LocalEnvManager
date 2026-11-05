@@ -1,5 +1,7 @@
 # 实施计划：项目部署管理功能
 
+> **历史计划**：本文记录当时的拆分方式。当前实现已经演进（`ShellViewModel` 不再直接执行更新，编辑对话框为 `Views/Edit/EditProjectView.xaml`，路径改为绝对路径）。行为以代码和 `troubleshooting_lessons.md` 为准。
+
 ## 涉及文件
 - `LocalEnvManager/Models/ManagedProject.cs`：新增字段与展示属性
 - `LocalEnvManager/Models/DeploymentMode.cs`：保持枚举不变

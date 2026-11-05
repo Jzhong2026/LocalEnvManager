@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace LocalEnvManager.ViewModels
@@ -9,7 +10,7 @@ namespace LocalEnvManager.ViewModels
     /// this interface, so the XAML can swap the active implementation by
     /// simply changing the <c>Content</c> binding on a ContentControl.
     /// </summary>
-    public interface ILiveLogViewModel
+    public interface ILiveLogViewModel : IDisposable
     {
         /// <summary>
         /// Stable id of the project this child view-model belongs to. Used by

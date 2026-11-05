@@ -7,7 +7,7 @@
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         xmlns:vm="clr-namespace:LocalEnvManager.ViewModels"
         mc:Ignorable="d"
-        Title="Parameter Help"
+        Title="参数说明"
         WindowStyle="None"
         AllowsTransparency="True"
         WindowStartupLocation="CenterOwner"
@@ -38,6 +38,7 @@
                     <Button DockPanel.Dock="Right"
                             cal:Message.Attach="[Event Click] = [Action Close]"
                             Style="{StaticResource TitleBarButtonStyle}"
+                            AutomationProperties.Name="关闭"
                             Content="&#xE106;"
                             FontFamily="Segoe MDL2 Assets"
                             VerticalAlignment="Center" />
@@ -115,6 +116,7 @@
                                                 Style="{StaticResource AddTextButtonStyle}"
                                                 cal:Message.Attach="[Event Click] = [Action CopyExample($dataContext)]"
                                                 ToolTip="复制到剪贴板"
+                                                AutomationProperties.Name="复制示例"
                                                 VerticalAlignment="Center">
                                             <StackPanel Orientation="Horizontal">
                                                 <materialDesign:PackIcon Kind="ContentCopy" Width="14" Height="14"
@@ -132,7 +134,7 @@
 
             <Border Grid.Row="2" Padding="24,8,24,20">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="Close"
+                    <Button Content="关闭"
                             cal:Message.Attach="[Event Click] = [Action Close]"
                             Style="{StaticResource PrimaryActionButtonStyle}"
                             materialDesign:ButtonAssist.CornerRadius="8"

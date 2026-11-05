@@ -1,5 +1,7 @@
 # 实施计划：执行更新右侧面板 — 按模式分流（控制台 / 日志文件）
 
+> **历史计划**：文中的 `ProjectLiveLogViewModel` 已不存在；当前由 `ExecuteViewModel.ActiveLiveLog` 持有每个项目的 `ILiveLogViewModel` 面板，并在配置变化/项目删除时释放重建。行为以代码为准。
+
 ## 1. 背景与目标
 
 `执行更新` 标签页右侧的「实时日志」面板目前只通过 `ProjectLogsWatcher`

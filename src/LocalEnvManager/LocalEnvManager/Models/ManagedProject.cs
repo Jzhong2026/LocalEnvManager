@@ -30,18 +30,18 @@ namespace LocalEnvManager.Models
 		private string _currentBranch = string.Empty;
 		private bool _isBranchLoading;
 		private string _latestLogSnippet = string.Empty;
-	private bool _hasLatestError;
-	private string _logsDirectory = string.Empty;
-	private string _dependsOn = string.Empty;
-	private bool _hasRunningProcess;
+		private bool _hasLatestError;
+		private string _logsDirectory = string.Empty;
+		private string _dependsOn = string.Empty;
+		private bool _hasRunningProcess;
 
-	public string Name
+		public string Name
 		{
 			get => _name;
 			set => Set(ref _name, value);
 		}
 
-		// Working directory / project source folder. May be relative to the category base path.
+		// Working directory / project source folder. Absolute path only.
 		public string SourcePath
 		{
 			get => _sourcePath;
@@ -79,7 +79,7 @@ namespace LocalEnvManager.Models
 			}
 		}
 
-		// Destination directory that gets overwritten by the backup folder after a successful build.
+		// Destination directory that the overlay folder is copied into after a successful build.
 		public string TargetPath
 		{
 			get => _targetPath;
@@ -90,7 +90,8 @@ namespace LocalEnvManager.Models
 			}
 		}
 
-		// Source folder whose files replace the target path after a successful build.
+		// Overlay folder copied into the target path after a successful build.
+		// The name is kept for JSON compatibility; the UI calls it 覆盖目录.
 		public string BackupFolder
 		{
 			get => _backupFolder;
@@ -101,20 +102,20 @@ namespace LocalEnvManager.Models
 			}
 		}
 
-	// Explicit override for the runtime log directory. When set, the right-pane
-	// live log viewer tails this directory directly. When empty, the watcher
-	// auto-discovers the directory by trying a list of conventional locations
-	// based on SourcePath / TargetPath / project name. Blank by default so
-	// existing configurations keep working without re-editing every project.
-	public string LogsDirectory
-	{
-		get => _logsDirectory;
-		set
+		// Explicit override for the runtime log directory. When set, the right-pane
+		// live log viewer tails this directory directly. When empty, the watcher
+		// auto-discovers the directory by trying a list of conventional locations
+		// based on TargetPath / SourcePath / project name. Blank by default so
+		// existing configurations keep working without re-editing every project.
+		public string LogsDirectory
 		{
-			if (Set(ref _logsDirectory, value ?? string.Empty))
-				NotifyDerivedChanged();
+			get => _logsDirectory;
+			set
+			{
+				if (Set(ref _logsDirectory, value ?? string.Empty))
+					NotifyDerivedChanged();
+			}
 		}
-	}
 
 	// Comma-separated project names that must finish successfully before this
 	// project runs when they are selected in the same update.
@@ -186,19 +187,19 @@ namespace LocalEnvManager.Models
 			get => _lastRunState;
 			set
 			{
-			if (Set(ref _lastRunState, value))
-			{
-				NotifyOfPropertyChange(nameof(LastRunStateDisplay));
-				NotifyOfPropertyChange(nameof(UpdateStateDisplay));
-				// These values are derived from LastRunState. Notify them explicitly
-				// so bindings re-enable the controls when a run finishes.
-				NotifyOfPropertyChange(nameof(IsRunEnabled));
-				NotifyOfPropertyChange(nameof(IsCheckEnabled));
-				NotifyOfPropertyChange(nameof(IsStopEnabled));
-				// Do not clear HasRunningProcess here. Uvicorn reports Success once
-				// its port is bound, but its console process remains alive and must
-				// still expose Stop. The runner/Stop path owns clearing that flag.
-			}
+				if (Set(ref _lastRunState, value))
+				{
+					NotifyOfPropertyChange(nameof(LastRunStateDisplay));
+					NotifyOfPropertyChange(nameof(UpdateStateDisplay));
+					// These values are derived from LastRunState. Notify them explicitly
+					// so bindings re-enable the controls when a run finishes.
+					NotifyOfPropertyChange(nameof(IsRunEnabled));
+					NotifyOfPropertyChange(nameof(IsCheckEnabled));
+					NotifyOfPropertyChange(nameof(IsStopEnabled));
+					// Do not clear HasRunningProcess here. Uvicorn reports Success once
+					// its port is bound, but its console process remains alive and must
+					// still expose Stop. The runner/Stop path owns clearing that flag.
+				}
 			}
 		}
 
@@ -266,17 +267,17 @@ namespace LocalEnvManager.Models
 		public bool IsCheckEnabled => LastRunState != ExecutionState.Running;
 
 		// Whether this project should do `git pull` before building. Persisted per-project.
-	public bool PullLatest
-	{
-		get => _pullLatest;
-		set
+		public bool PullLatest
 		{
-			if (Set(ref _pullLatest, value))
-				NotifyOfPropertyChange(nameof(PullLatestDisplay));
+			get => _pullLatest;
+			set
+			{
+				if (Set(ref _pullLatest, value))
+					NotifyOfPropertyChange(nameof(PullLatestDisplay));
+			}
 		}
-	}
 
-	public string PullLatestDisplay => PullLatest ? "\u5df2\u542f\u7528" : "\u672a\u542f\u7528";
+		public string PullLatestDisplay => PullLatest ? "\u5df2\u542f\u7528" : "\u672a\u542f\u7528";
 
 		// ===== Current git branch (loaded lazily on the Execute tab) =====
 		public string CurrentBranch

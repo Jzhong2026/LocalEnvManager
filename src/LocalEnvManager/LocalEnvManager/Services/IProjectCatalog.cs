@@ -43,6 +43,7 @@ namespace LocalEnvManager.Services
         private readonly DispatcherTimer _saveDebounceTimer;
         private readonly Dictionary<ManagedProject, int> _projectIds = new();
         private int _nextProjectId = 1;
+        private bool _saveBlocked;
 
         public ProjectCatalog(IProjectStore store, IRuntimeLogger logger, IEventAggregator events)
         {
@@ -192,6 +193,8 @@ namespace LocalEnvManager.Services
 
         private void SaveToStoreNow()
         {
+            if (_saveBlocked) return;
+
             var snapshot = new ProjectStoreSnapshot
             {
                 Categories = Categories.Select(c => new CategoryRecord
@@ -226,31 +229,50 @@ namespace LocalEnvManager.Services
         {
             Categories.Clear();
 
-            ProjectStoreSnapshot snapshot;
-            try
+            var load = _store.Load();
+            switch (load.Status)
             {
-                snapshot = _store.Load();
-            }
-            catch (Exception ex)
-            {
-                _logger.Append(LogEntry.LogLevel.Error, $"项目配置读取失败：{ex.Message}");
-                snapshot = new ProjectStoreSnapshot();
-            }
+                case ProjectStoreLoadStatus.Missing:
+                    // Genuine first run: seed once so the app has something to show.
+                    foreach (var category in CreateSeedCategories())
+                    {
+                        Categories.Add(category);
+                    }
+                    SaveToStoreNow();
+                    break;
 
-            if (snapshot.Categories.Count == 0)
-            {
-                foreach (var category in CreateSeedCategories())
-                {
-                    Categories.Add(category);
-                }
-                SaveToStoreNow();
-            }
-            else
-            {
-                foreach (var category in snapshot.Categories.Select(CreateCategory))
-                {
-                    Categories.Add(category);
-                }
+                case ProjectStoreLoadStatus.Failed:
+                    if (string.IsNullOrWhiteSpace(load.BackupPath))
+                    {
+                        // Without a backup we cannot safely replace the file. Keep the
+                        // app usable with an empty in-memory list and refuse to write
+                        // until the user fixes the original file.
+                        _saveBlocked = true;
+                        _logger.Append(LogEntry.LogLevel.Error,
+                            $"{load.ErrorMessage}（原文件备份失败，已禁用配置写入以避免覆盖原文件）");
+                        break;
+                    }
+
+                    // The original file was copied to load.BackupPath before we write
+                    // anything. Log loudly, then continue with a clean seed set rather
+                    // than refusing to start.
+                    _logger.Append(LogEntry.LogLevel.Error,
+                        $"{load.ErrorMessage}（原文件已备份到 {load.BackupPath}）");
+                    foreach (var category in CreateSeedCategories())
+                    {
+                        Categories.Add(category);
+                    }
+                    SaveToStoreNow();
+                    break;
+
+                default:
+                    // A successfully loaded but empty list is a legitimate "no projects"
+                    // state. Do not resurrect sample projects for it.
+                    foreach (var category in load.Snapshot.Categories.Select(CreateCategory))
+                    {
+                        Categories.Add(category);
+                    }
+                    break;
             }
 
             RebuildProjectList();

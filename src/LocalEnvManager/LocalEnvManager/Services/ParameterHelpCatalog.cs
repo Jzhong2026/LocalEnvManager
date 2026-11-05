@@ -23,13 +23,13 @@ namespace LocalEnvManager.Services
 			new Dictionary<string, ParameterHelp>
 			{
 				[ProjectName] = new ParameterHelp(
-					"Project Name",
+					"项目名称",
 					"项目的显示名称，会出现在左侧分类下、运行列表以及右侧详情面板中。名称必须唯一，便于在依赖项目下拉框里识别。",
 					"示例:\n  LLMAgentApi\n  plus-core\n  llm-admin-web"),
 
 				[DeploymentMode] = new ParameterHelp(
-					"Deployment Mode",
-					"选择如何部署或运行该项目，决定 Command 字段如何被解释以及何时同步 BackupFolder → TargetPath。\n\n" +
+					"部署方式",
+					"选择如何部署或运行该项目，决定「命令参数」如何被解释，以及何时把「覆盖目录」同步到「目标路径」。\n\n" +
 					"• dotnet publish：执行 `dotnet publish <Command>`，命令成功后同步。适合 ASP.NET / WPF 等需要发布产物的项目。\n" +
 					"• dotnet build：执行 `dotnet build <Command>`，只编译不发布，命令成功后同步。\n" +
 					"• PowerShell：把 Command 当作 PowerShell 表达式执行（不通过 -File），命令成功后同步。\n" +
@@ -42,17 +42,16 @@ namespace LocalEnvManager.Services
 					"PowerShell 示例:\n  .\\build_release.ps1"),
 
 				[SourcePath] = new ParameterHelp(
-					"Source Path",
+					"源路径",
 					"命令执行的工作目录。dotnet / uvicorn / PowerShell 都会以此目录作为 cwd 运行；git pull 也会在此目录下执行。\n\n" +
-					"可以使用绝对路径（例如 D:\\Projects\\LLMAgentApi），也可以使用相对于所属分类 BasePath 的相对路径。\n\n" +
+					"必须使用绝对路径（例如 D:\\Projects\\LLMAgentApi）。当前版本不再支持相对于分类的相对路径。\n\n" +
 					"对于 dotnet 项目，通常指向包含 .csproj / .sln 的目录。",
-					"绝对路径示例:\n  D:\\Projects\\LLMAgentApi\n\n" +
-					"相对路径示例（相对于分类 BasePath）:\n  src\\LLMAgentApi"),
+					"绝对路径示例:\n  D:\\Projects\\LLMAgentApi\n  D:\\Source\\AI-Search\\src\\backend\\LLMAgentApi"),
 
 				[Command] = new ParameterHelp(
 					"Command",
-					"传给所选部署方式的参数（去掉命令名本身）。切换 Deployment Mode 时会自动填入对应默认值：\n" +
-					"• dotnet publish → publish -c Release -p:Platform=\"any cpu\"（若 TargetPath 已填则拼接 -o）\n" +
+					"传给所选部署方式的参数（去掉命令名本身）。切换部署方式时会自动填入对应默认值：\n" +
+					"• dotnet publish → publish -c Release -p:Platform=\"any cpu\"（若目标路径已填则拼接 -o）\n" +
 					"• dotnet build   → build -c Debug（不拼接 -o）\n" +
 					"• PowerShell → .\\build_release.ps1（来自 ChatWidget）\n" +
 					"• uvicorn → .venv\\Scripts\\python -m uvicorn hosting.main:app --host 0.0.0.0 --port 8000（来自 PyAgents）\n\n" +
@@ -61,56 +60,56 @@ namespace LocalEnvManager.Services
 					CommandExampleRows.All),
 
 				[TargetPath] = new ParameterHelp(
-					"Target Path",
-					"部署目标目录。命令成功（退出码 0）后，BackupFolder 会被递归复制到这里（覆盖同名文件；目标目录不存在会自动创建）。\n\n" +
+					"目标路径",
+					"部署目标目录。命令成功（退出码 0）后，「覆盖目录」会被递归复制到这里（覆盖同名文件；目标目录不存在会自动创建）。\n\n" +
 					"对部署型项目（如 IIS 站点）通常指向 IIS 应用目录，例如 D:\\Sites\\LLMAgentApi。\n\n" +
 					"对 uvicorn 模式，目标目录会在服务启动前同步一次。",
 					"示例:\n  D:\\Sites\\LLMAgentApi\n  D:\\inetpub\\wwwroot\\plus-api"),
 
 				[BackupFolder] = new ParameterHelp(
-					"Backup Folder",
-					"命令成功（退出码 0）后会被递归复制到 TargetPath 的源目录。\n\n" +
+					"覆盖目录",
+					"命令成功（退出码 0）后会被递归复制到「目标路径」。\n\n" +
 					"对于 dotnet publish / build，通常指向 `-o` 输出目录，例如 D:\\Projects\\LLMAgentApi\\out。\n" +
 					"对于 uvicorn / PowerShell，指向已经构建好的产物目录。\n\n" +
-					"同步时会覆盖同名文件，目标目录中不存在于 BackupFolder 的文件不会被删除。",
+					"同步时会覆盖同名文件；目标目录中不存在于覆盖目录的文件不会被删除。",
 					"dotnet publish 输出示例:\n  D:\\Projects\\LLMAgentApi\\out\n\n" +
 					"uvicorn 项目示例（虚拟环境已激活的部署目录）:\n  D:\\Projects\\llm-agent-api\\dist"),
 
 				[IisAppPool] = new ParameterHelp(
-					"IIS AppPool",
-					"可选的 IIS 应用程序池名称。设置后，dotnet publish / dotnet build 之前会用 %SystemRoot%\\System32\\inetsrv\\appcmd.exe 回收该 AppPool，让 w3wp 释放对 TargetPath 的文件占用，避免覆盖时出现文件被占用的错误。\n\n" +
+					"IIS 应用池",
+					"可选的 IIS 应用程序池名称。设置后，dotnet publish / dotnet build 之前会用 %SystemRoot%\\System32\\inetsrv\\appcmd.exe 回收该 AppPool，让 w3wp 释放对目标路径的文件占用，避免覆盖时出现文件被占用的错误。\n\n" +
 					"留空表示该项目不跑在 IIS 下，部署流程不会尝试回收任何 AppPool。",
 					"示例:\n  LLMAgentApi\n  PlusApiAppPool"),
 
 				[PullLatest] = new ParameterHelp(
 					"更新前执行 git pull",
-					"勾选后，每次更新会在 SourcePath 下执行 `git pull`（非交互模式）。若 git pull 返回非零退出码，会停止该项目的后续步骤并标记失败。\n\n" +
-					"适合本地仓库直接作为部署源的情况。如果 SourcePath 不是 git 仓库，请勿勾选，否则会报错。",
+					"勾选后，每次更新会在源路径下执行 `git pull`（非交互模式）。若 git pull 返回非零退出码，会停止该项目的后续步骤并标记失败。\n\n" +
+					"适合本地仓库直接作为部署源的情况。如果源路径不是 git 仓库，请勿勾选，否则会报错。",
 
 					"适用场景:\n" +
-					"  • SourcePath 是 git 仓库的工作目录\n" +
+					"  • 源路径是 git 仓库的工作目录\n" +
 					"  • 部署前希望先拉取远端最新代码\n\n" +
 					"不适用场景:\n" +
-					"  • SourcePath 是已发布产物目录\n" +
+					"  • 源路径是已发布产物目录\n" +
 					"  • 需要手动控制何时拉取"),
 
 				[DependsOn] = new ParameterHelp(
 					"依赖项目",
 					"同一批次（Run selected）中需要先完成的项目。选择后，本次更新会先执行依赖项目（成功后才执行本项目）。\n\n" +
-					"依赖项目执行失败时，本项目会被跳过。\n\n" +
-					"下拉框列出当前所有其他项目；点击 Clear 按钮可清除当前依赖。",
-					"示例:\n  选择 plus-core 后，每次运行会先更新 plus-core，成功后再更新本项目。"),
+					"依赖项目执行失败、或依赖项目没有一起勾选时，本项目会被跳过并标记为失败。\n\n" +
+					"下拉框列出当前所有其他项目；点击「清除」按钮可清除当前依赖。",
+					"示例:\n  选择 plus-core 后，勾选 plus-core 和本项目再运行，会先更新 plus-core，成功后再更新本项目。"),
 
 				[LogsDirectory] = new ParameterHelp(
-					"Logs Directory",
+					"日志目录",
 					"可选。显式指定该项目运行时产生的日志所在目录；右侧日志面板会 tail 此目录中最新的 .log / .txt 文件。\n\n" +
 					"留空时按以下顺序自动发现：\n" +
-					"  1) SourcePath 下的 logs / log / Logs / Log 子目录\n" +
-					"  2) TargetPath 下的 logs / log / Logs / Log 子目录\n" +
-					"  3) <项目名> 作为目录名在常见日志根目录下查找\n\n" +
-					"如果自动发现不到，可以在右侧详情面板查看 ResolvedLogsDirectory 来确认实际位置。",
+					"  1) 目标路径的父目录下 Logs / logs / Logs\\<项目名> / logs\\<项目名>\n" +
+					"  2) 源路径的父目录下 Logs / logs / Logs\\<项目名> / logs\\<项目名>\n" +
+					"  3) 项目名同时尝试原样与 kebab-case（LLMAgentApi → llm-agent-api）\n\n" +
+					"如果自动发现不到，可以在右侧详情面板查看实际解析出的目录。",
 					"显式指定示例:\n  D:\\Plus\\Logs\\llm-agent-api\n\n" +
-					"留空 + 自动发现示例（取决于 SourcePath / TargetPath / 项目名）:\n  D:\\Projects\\LLMAgentApi\\logs"),
+					"留空 + 自动发现示例（取决于源路径 / 目标路径 / 项目名）:\n  D:\\Projects\\LLMAgentApi\\logs"),
 			};
 
 		public static ParameterHelp Get(string key)

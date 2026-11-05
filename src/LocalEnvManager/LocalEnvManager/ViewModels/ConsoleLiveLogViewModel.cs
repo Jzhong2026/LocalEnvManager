@@ -38,6 +38,7 @@ namespace LocalEnvManager.ViewModels
         private readonly List<string> _pending = new();
         private System.Threading.Timer? _flushTimer;
         private bool _available;
+        private bool _disposed;
 
         public ConsoleLiveLogViewModel(int projectId, IEventAggregator events)
         {
@@ -100,9 +101,9 @@ namespace LocalEnvManager.ViewModels
         {
             if (message.ProjectId != ProjectId) return Task.CompletedTask;
 
-            // Stderr lines (e.g. Python tracebacks) get a visual marker so the
-            // user can spot them in the dark console.
-            var line = message.IsError ? "⚠ " + message.Line : message.Line;
+            // Stderr gets a channel marker so the user can spot it in the dark
+            // console. It is deliberately not treated as an error/log level.
+            var line = message.IsStderr ? "⚠ " + message.Line : message.Line;
             lock (_bufferGate)
             {
                 _pending.Add(line);
@@ -140,6 +141,8 @@ namespace LocalEnvManager.ViewModels
 
         private void FlushPending()
         {
+            if (_disposed) return;
+
             // Timer callbacks run on a ThreadPool thread, but the bound
             // collection is UI-affine. Marshal to the dispatcher before
             // mutating. We do the dequeue on this thread to keep the
@@ -185,13 +188,21 @@ namespace LocalEnvManager.ViewModels
             }
         }
 
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            try { _events.Unsubscribe(this); } catch { }
+            _flushTimer?.Dispose();
+            _flushTimer = null;
+            lock (_bufferGate) { _pending.Clear(); }
+        }
+
         protected override System.Threading.Tasks.Task OnDeactivateAsync(bool close, System.Threading.CancellationToken cancellationToken)
         {
             if (close)
             {
-                try { _events.Unsubscribe(this); } catch { }
-                _flushTimer?.Dispose();
-                _flushTimer = null;
+                Dispose();
             }
             return base.OnDeactivateAsync(close, cancellationToken);
         }

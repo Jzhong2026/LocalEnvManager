@@ -50,8 +50,8 @@ namespace LocalEnvManager.Models
         // tab header stays a single binding target.
         public string StateBrush => Project.LastRunState switch
         {
-            ExecutionState.Running => "#3B82F6",
-            ExecutionState.Success => "#16A34A",
+            ExecutionState.Running => "#2563EB",
+            ExecutionState.Success => "#15803D",
             ExecutionState.Failed => "#DC2626",
             _ => "#64748B"
         };

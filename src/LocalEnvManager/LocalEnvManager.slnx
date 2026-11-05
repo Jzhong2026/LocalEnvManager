@@ -3,4 +3,5 @@
   <Folder Name="/LocalEnvManager/build/" />
   <Folder Name="/LocalEnvManager/build/verify/" />
   <Project Path="LocalEnvManager/LocalEnvManager.csproj" />
+  <Project Path="tests/LocalEnvManager.Tests/LocalEnvManager.Tests.csproj" />
 </Solution>

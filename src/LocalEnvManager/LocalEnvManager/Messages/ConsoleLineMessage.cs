@@ -9,13 +9,15 @@ namespace LocalEnvManager.Messages
     {
         public int ProjectId { get; }
         public string Line { get; }
-        /// <summary>True when the line came from stderr; UI may tint it red.</summary>
-        public bool IsError { get; }
-        public ConsoleLineMessage(int projectId, string line, bool isError = false)
+        /// <summary>True when the line came from the child process's stderr stream.
+        /// This is an output-channel marker, not a log level — stderr frequently
+        /// carries progress/diagnostics that are not errors.</summary>
+        public bool IsStderr { get; }
+        public ConsoleLineMessage(int projectId, string line, bool isStderr = false)
         {
             ProjectId = projectId;
             Line = line;
-            IsError = isError;
+            IsStderr = isStderr;
         }
     }
 }

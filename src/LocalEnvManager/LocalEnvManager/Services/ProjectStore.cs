@@ -11,9 +11,27 @@ namespace LocalEnvManager.Services
     /// local app data folder. Categorisation and per-project configuration survives
     /// application restarts.
     /// </summary>
+    public enum ProjectStoreLoadStatus
+    {
+        /// <summary>No config file exists yet — this is a genuine first run.</summary>
+        Missing,
+        /// <summary>A config file was read successfully. An empty category list is a
+        /// legitimate user choice and must not be replaced with seed data.</summary>
+        Loaded,
+        /// <summary>The file exists but could not be read/deserialised. The original is
+        /// backed up before the caller decides how to continue.</summary>
+        Failed
+    }
+
+    public sealed record ProjectStoreLoadResult(
+        ProjectStoreSnapshot Snapshot,
+        ProjectStoreLoadStatus Status,
+        string? ErrorMessage = null,
+        string? BackupPath = null);
+
     public interface IProjectStore
     {
-        ProjectStoreSnapshot Load();
+        ProjectStoreLoadResult Load();
         /// <summary>
         /// Persist <paramref name="snapshot"/> to disk. Throws on failure so callers
         /// can surface the error to the user (silent corruption was the cause of
@@ -61,8 +79,20 @@ namespace LocalEnvManager.Services
 
         private readonly string _filePath;
 
-        public JsonProjectStore()
+        public JsonProjectStore(string? filePath = null)
         {
+            if (!string.IsNullOrWhiteSpace(filePath))
+            {
+                // Explicit path is used by tests. The caller owns the directory.
+                _filePath = filePath;
+                var directory = Path.GetDirectoryName(_filePath);
+                if (!string.IsNullOrEmpty(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+                return;
+            }
+
             var folder = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "LocalEnvManager");
@@ -70,26 +100,55 @@ namespace LocalEnvManager.Services
             _filePath = Path.Combine(folder, "projects.json");
         }
 
-        public ProjectStoreSnapshot Load()
+        public ProjectStoreLoadResult Load()
         {
+            if (!File.Exists(_filePath))
+            {
+                return new ProjectStoreLoadResult(
+                    new ProjectStoreSnapshot(),
+                    ProjectStoreLoadStatus.Missing);
+            }
+
             try
             {
-                if (!File.Exists(_filePath))
-                {
-                    return new ProjectStoreSnapshot();
-                }
-
                 using var stream = File.OpenRead(_filePath);
                 var snapshot = JsonSerializer.Deserialize<ProjectStoreSnapshot>(stream, SerializerOptions);
-                return snapshot ?? new ProjectStoreSnapshot();
+                if (snapshot is null)
+                {
+                    throw new InvalidDataException("配置文件内容为空或不是有效的 JSON 对象。");
+                }
+
+                snapshot.Categories ??= new List<CategoryRecord>();
+                return new ProjectStoreLoadResult(snapshot, ProjectStoreLoadStatus.Loaded);
             }
             catch (Exception ex)
             {
-                // If the file is corrupt or unreadable, return an empty snapshot AND surface
-                // the failure via the exception's message — the caller (ShellViewModel) logs
-                // it so the user knows their config wasn't actually loaded.
-                throw new InvalidDataException(
-                    $"无法读取项目配置 {_filePath}：{ex.Message}", ex);
+                // Keep the original bytes before the caller potentially writes seed data.
+                // A transient read failure (file lock / antivirus) therefore never destroys
+                // the user's configuration; it can be restored from the backup path.
+                var backupPath = TryBackupCorruptFile();
+                return new ProjectStoreLoadResult(
+                    new ProjectStoreSnapshot(),
+                    ProjectStoreLoadStatus.Failed,
+                    $"无法读取项目配置 {_filePath}：{ex.Message}",
+                    backupPath);
+            }
+        }
+
+        private string? TryBackupCorruptFile()
+        {
+            try
+            {
+                var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
+                var suffix = Guid.NewGuid().ToString("N")[..8];
+                var backupPath = $"{_filePath}.corrupt-{stamp}-{suffix}";
+                File.Copy(_filePath, backupPath, overwrite: false);
+                return backupPath;
+            }
+            catch
+            {
+                // Best effort: failing to back up must not mask the original load error.
+                return null;
             }
         }
 

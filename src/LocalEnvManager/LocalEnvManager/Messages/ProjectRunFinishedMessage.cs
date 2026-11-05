@@ -10,11 +10,16 @@ namespace LocalEnvManager.Messages
         public int ProjectId { get; }
         public bool Success { get; }
         public string Message { get; }
-        public ProjectRunFinishedMessage(int projectId, bool success, string message)
+        /// <summary>True when the run ended because the user pressed Stop/Cancel.
+        /// Cancellation is not a failure and must not tint the log entry red.</summary>
+        public bool Cancelled { get; }
+
+        public ProjectRunFinishedMessage(int projectId, bool success, string message, bool cancelled = false)
         {
             ProjectId = projectId;
             Success = success;
             Message = message;
+            Cancelled = cancelled;
         }
     }
 }

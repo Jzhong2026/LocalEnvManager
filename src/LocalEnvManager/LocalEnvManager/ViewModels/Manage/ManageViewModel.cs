@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Caliburn.Micro;
@@ -86,7 +88,7 @@ namespace LocalEnvManager.ViewModels
 
         public void AddCategory()
         {
-            var category = new ProjectCategory { Name = "新分类" };
+            var category = new ProjectCategory { Name = NextAvailableName("新分类", _catalog.Categories.Select(c => c.Name)) };
             _catalog.Categories.Add(category);
         }
 
@@ -105,12 +107,30 @@ namespace LocalEnvManager.ViewModels
             if (category is null) return;
             var project = new ManagedProject
             {
-                Name = "新项目",
+                Name = NextAvailableName("新项目", _catalog.Projects.Select(p => p.Name)),
                 DeploymentMode = DeploymentMode.DotNetPublish,
                 PullLatest = true
             };
             category.Projects.Add(project);
             SelectedProject = project;
+        }
+
+        // Names are used as dependency keys, so two projects/categories with the
+        // same display name would be ambiguous. Generate a unique default instead
+        // of always creating "新项目".
+        private static string NextAvailableName(string baseName, IEnumerable<string> existing)
+        {
+            var taken = new HashSet<string>(
+                existing.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name.Trim()),
+                StringComparer.OrdinalIgnoreCase);
+
+            if (!taken.Contains(baseName)) return baseName;
+
+            for (var suffix = 2; ; suffix++)
+            {
+                var candidate = $"{baseName} {suffix}";
+                if (!taken.Contains(candidate)) return candidate;
+            }
         }
 
         /// <summary>

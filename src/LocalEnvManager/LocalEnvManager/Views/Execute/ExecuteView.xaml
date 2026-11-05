@@ -49,7 +49,7 @@
 
                 <!-- Left: project table -->
                 <Border Grid.Column="0"
-                        Background="#F8FAFC"
+                        Background="{StaticResource SurfaceMutedBrush}"
                         BorderBrush="{StaticResource CardBorderBrush}"
                         BorderThickness="1"
                         CornerRadius="10">
@@ -72,6 +72,7 @@
                             </Grid.ColumnDefinitions>
                             <CheckBox Grid.Column="0"
                                       VerticalAlignment="Center"
+                                      AutomationProperties.Name="全选项目"
                                       IsChecked="{Binding IsAllSelected, Mode=OneWay}"
                                       IsEnabled="{Binding HasProjects}"
                                       cal:Message.Attach="[Event Click] = [Action ToggleSelectAll]"
@@ -82,6 +83,7 @@
                                 <Button DockPanel.Dock="Right"
                                         Style="{StaticResource AddTextButtonStyle}"
                                         cal:Message.Attach="[Event Click] = [Action RefreshBranches]"
+                                        AutomationProperties.Name="刷新分支信息"
                                         IsEnabled="{Binding IsRefreshingBranches, Converter={StaticResource NotConverter}}"
                                         ToolTip="重新拉取每个项目的 git 分支信息"
                                         Height="24"
@@ -159,7 +161,7 @@
                                                 <Border Grid.Column="3"
                                                         Margin="6,0,6,0"
                                                         Padding="8,3"
-                                                        Background="#E2E8F0"
+                                                        Background="{StaticResource CardBorderBrush}"
                                                         CornerRadius="4"
                                                         VerticalAlignment="Center"
                                                         HorizontalAlignment="Left">
@@ -167,11 +169,11 @@
                                                         <materialDesign:PackIcon Kind="SourceBranch"
                                                                                  Width="12" Height="12"
                                                                                  VerticalAlignment="Center"
-                                                                                 Foreground="#475569" />
+                                                                                 Foreground="{StaticResource TextSecondaryBrush}" />
                                                         <TextBlock FontSize="11"
                                                                    Margin="5,0,0,0"
                                                                    FontWeight="Medium"
-                                                                   Foreground="#334155"
+                                                                   Foreground="{StaticResource TextStrongSecondaryBrush}"
                                                                    TextTrimming="CharacterEllipsis"
                                                                    Text="{Binding BranchDisplay}" />
                                                     </StackPanel>
@@ -211,11 +213,12 @@
                                                         Width="28" Height="28"
                                                         Padding="0"
                                                         ToolTip="停止进程（uvicorn / PowerShell）"
+                                                        AutomationProperties.Name="停止进程"
                                                         Visibility="{Binding IsStopEnabled, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                         cal:Action.TargetWithoutContext="{Binding DataContext, ElementName=Root}"
                                                         cal:Message.Attach="[Event Click] = [Action StopProject($dataContext)]"
-                                                        Background="#DC2626"
-                                                        BorderBrush="#DC2626"
+                                                        Background="{StaticResource DangerBrush}"
+                                                        BorderBrush="{StaticResource DangerBrush}"
                                                         Foreground="White">
                                                     <materialDesign:PackIcon Kind="Stop" Width="14" Height="14" />
                                                 </Button>
@@ -286,19 +289,19 @@
 
                             <Border Grid.Column="0"
                                     Padding="10,6"
-                                    Background="#F1F5F9"
+                                    Background="{StaticResource SurfaceSubtleBrush}"
                                     CornerRadius="6"
                                     VerticalAlignment="Center">
                                 <StackPanel Orientation="Horizontal">
                                     <materialDesign:PackIcon Kind="SourceBranch"
                                                              Width="14" Height="14"
                                                              VerticalAlignment="Center"
-                                                             Foreground="#475569" />
+                                                             Foreground="{StaticResource TextSecondaryBrush}" />
                                     <TextBlock Margin="6,0,0,0"
                                                FontSize="12"
                                                FontWeight="Medium"
                                                VerticalAlignment="Center"
-                                               Foreground="#334155"
+                                               Foreground="{StaticResource TextStrongSecondaryBrush}"
                                                Text="{Binding SelectedProject.BranchDisplay, FallbackValue='—', TargetNullValue='—'}" />
                                 </StackPanel>
                             </Border>
@@ -326,7 +329,7 @@
                                 <ContentControl.Resources>
                                     <DataTemplate DataType="{x:Type vm:ConsoleLiveLogViewModel}">
                                         <Grid>
-                                            <Border Background="#0F172A"
+                                            <Border Background="{StaticResource LogBackgroundBrush}"
                                                     CornerRadius="6"
                                                     Padding="12,10"
                                                     Visibility="{Binding Available, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -339,7 +342,7 @@
                                                             <DataTemplate>
                                                                 <TextBlock FontFamily="Consolas"
                                                                            FontSize="12"
-                                                                           Foreground="#E2E8F0"
+                                                                           Foreground="{StaticResource LogTextBrush}"
                                                                            TextWrapping="Wrap"
                                                                            Text="{Binding}" />
                                                             </DataTemplate>
@@ -347,7 +350,7 @@
                                                     </ItemsControl>
                                                 </ScrollViewer>
                                             </Border>
-                                            <Border Background="#F1F5F9"
+                                            <Border Background="{StaticResource SurfaceSubtleBrush}"
                                                     BorderBrush="{StaticResource CardBorderBrush}"
                                                     BorderThickness="1"
                                                     CornerRadius="6"
@@ -358,17 +361,17 @@
                                                         <materialDesign:PackIcon Kind="ConsoleLine"
                                                                                  Width="16" Height="16"
                                                                                  VerticalAlignment="Center"
-                                                                                 Foreground="#64748B" />
+                                                                                 Foreground="{StaticResource TextTertiaryBrush}" />
                                                         <TextBlock Margin="8,0,0,0"
                                                                    FontSize="13"
                                                                    FontWeight="Medium"
                                                                    VerticalAlignment="Center"
-                                                                   Foreground="#334155"
+                                                                   Foreground="{StaticResource TextStrongSecondaryBrush}"
                                                                    Text="控制台输出" />
                                                     </StackPanel>
                                                     <TextBlock Margin="24,8,0,0"
                                                                FontSize="12"
-                                                               Foreground="#64748B"
+                                                               Foreground="{StaticResource TextTertiaryBrush}"
                                                                TextWrapping="Wrap"
                                                                Text="{Binding Hint}" />
                                                 </StackPanel>
@@ -377,7 +380,7 @@
                                     </DataTemplate>
                                     <DataTemplate DataType="{x:Type vm:LogFileLiveLogViewModel}">
                                         <Grid>
-                                            <Border Background="#0F172A"
+                                            <Border Background="{StaticResource LogBackgroundBrush}"
                                                     CornerRadius="6"
                                                     Padding="12,10"
                                                     Visibility="{Binding Available, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -390,7 +393,7 @@
                                                             <DataTemplate>
                                                                 <TextBlock FontFamily="Consolas"
                                                                            FontSize="12"
-                                                                           Foreground="#E2E8F0"
+                                                                           Foreground="{StaticResource LogTextBrush}"
                                                                            TextWrapping="Wrap"
                                                                            Text="{Binding}" />
                                                             </DataTemplate>
@@ -398,7 +401,7 @@
                                                     </ItemsControl>
                                                 </ScrollViewer>
                                             </Border>
-                                            <Border Background="#F1F5F9"
+                                            <Border Background="{StaticResource SurfaceSubtleBrush}"
                                                     BorderBrush="{StaticResource CardBorderBrush}"
                                                     BorderThickness="1"
                                                     CornerRadius="6"
@@ -409,17 +412,17 @@
                                                         <materialDesign:PackIcon Kind="FileDocumentOutline"
                                                                                  Width="16" Height="16"
                                                                                  VerticalAlignment="Center"
-                                                                                 Foreground="#64748B" />
+                                                                                 Foreground="{StaticResource TextTertiaryBrush}" />
                                                         <TextBlock Margin="8,0,0,0"
                                                                    FontSize="13"
                                                                    FontWeight="Medium"
                                                                    VerticalAlignment="Center"
-                                                                   Foreground="#334155"
+                                                                   Foreground="{StaticResource TextStrongSecondaryBrush}"
                                                                    Text="日志文件" />
                                                     </StackPanel>
                                                     <TextBlock Margin="24,8,0,0"
                                                                FontSize="12"
-                                                               Foreground="#64748B"
+                                                               Foreground="{StaticResource TextTertiaryBrush}"
                                                                TextWrapping="Wrap"
                                                                Text="{Binding Hint}" />
                                                 </StackPanel>
@@ -436,7 +439,7 @@
             <!-- Footer action bar -->
             <Border Grid.Row="2"
                     Margin="0,16,0,0"
-                    Background="#F8FAFC"
+                    Background="{StaticResource SurfaceMutedBrush}"
                     BorderBrush="{StaticResource CardBorderBrush}"
                     BorderThickness="1"
                     CornerRadius="10"

@@ -30,10 +30,13 @@ namespace LocalEnvManager.Services
     public sealed class ProjectLogsWatcher : IDisposable
     {
         private readonly object _gate = new();
+        private readonly object _decodeGate = new();
+        private readonly Utf8LineAssembler _lineAssembler = new();
         private FileSystemWatcher? _watcher;
         private string? _logsDirectory;
         private long _readOffset;
         private string? _watchedFile;
+        private bool _discardUntilNewline;
         private CancellationTokenSource? _readCts;
 
         /// <summary>Absolute path of the logs directory, or null when not configured.</summary>
@@ -235,6 +238,12 @@ namespace LocalEnvManager.Services
         {
             StopWatcher();
 
+            lock (_decodeGate)
+            {
+                _lineAssembler.Reset();
+                _discardUntilNewline = false;
+            }
+
             if (project is null)
             {
                 lock (_gate) { _logsDirectory = null; _watchedFile = null; _readOffset = 0; }
@@ -265,15 +274,6 @@ namespace LocalEnvManager.Services
         public void SetSink(IProgress<string>? sink)
         {
             lock (_gate) _currentSink = sink;
-        }
-
-        /// <summary>
-        /// Reset the read offset so the next emission replays the most recent N bytes
-        /// from the watched file (used when the user re-selects a project).
-        /// </summary>
-        public void ResetOffset()
-        {
-            lock (_gate) _readOffset = 0;
         }
 
         private void StartWatcher(string directory)
@@ -340,11 +340,34 @@ namespace LocalEnvManager.Services
         {
             // Debounce bursts of file events. Multiple Changed notifications arrive
             // for a single write (LastWrite + Size + Created) and we only want to
-            // emit the file contents once they're fully flushed.
-            Task.Delay(250).ContinueWith(_ =>
+            // emit the file contents once they're fully flushed. Tie the delay to
+            // the watcher's token so a disposed watcher doesn't keep ticking.
+            var cts = _readCts;
+            if (cts is null) return;
+
+            CancellationToken token;
+            try
             {
-                try { ReadTick(); } catch { }
-            });
+                token = cts.Token;
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            if (token.IsCancellationRequested) return;
+
+            try
+            {
+                _ = Task.Delay(250, token).ContinueWith(task =>
+                {
+                    if (task.IsCanceled) return;
+                    try { ReadTick(); } catch { }
+                }, TaskScheduler.Default);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Watcher was disposed between reading the token and scheduling.
+            }
         }
 
         private void ReadTick()
@@ -381,8 +404,14 @@ namespace LocalEnvManager.Services
                 using var fs = new FileStream(latest, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 if (fs.Length <= previousOffset)
                 {
-                    // File was truncated/rotated: reset offset and read everything fresh.
+                    // File was truncated/rotated: reset offset, decoder and partial
+                    // line so the fresh content is not spliced onto stale text.
                     lock (_gate) _readOffset = 0;
+                    lock (_decodeGate)
+                    {
+                        _lineAssembler.Reset();
+                        _discardUntilNewline = false;
+                    }
                     previousOffset = 0;
                     fs.Position = 0;
                 }
@@ -399,7 +428,7 @@ namespace LocalEnvManager.Services
                 if (read <= 0) return;
                 lock (_gate) _readOffset = fs.Position;
 
-                Emit(buffer, read, sink);
+                ReportLines(sink, Decode(buffer, read));
             }
             catch
             {
@@ -416,6 +445,12 @@ namespace LocalEnvManager.Services
                 _readOffset = 0;
                 sink = _currentSink;
             }
+            lock (_decodeGate)
+            {
+                _lineAssembler.Reset();
+                _discardUntilNewline = false;
+            }
+
             // Emit a banner so the user can see which file is being followed.
             sink?.Report($"─── tailing {Path.GetFileName(newFile)} ───");
             try
@@ -423,15 +458,57 @@ namespace LocalEnvManager.Services
                 using var fs = new FileStream(newFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 // Start with the last 4 KiB so the user gets context immediately.
                 var startFrom = Math.Max(0, fs.Length - 4096);
+                if (startFrom > 0)
+                {
+                    // Starting mid-file means the first bytes are a fragment of a line.
+                    // Skip to after the first newline; if this chunk contains no newline
+                    // at all, keep discarding until one arrives.
+                    lock (_decodeGate) { _discardUntilNewline = true; }
+                }
                 fs.Position = startFrom;
                 var len = (int)(fs.Length - startFrom);
                 if (len <= 0) return;
                 var buffer = new byte[len];
                 var read = fs.Read(buffer, 0, len);
                 lock (_gate) _readOffset = fs.Position;
-                Emit(buffer, read, sink);
+
+                ReportLines(sink, Decode(buffer, read));
             }
             catch { /* file may be locked by another writer; will retry on next tick */ }
+        }
+
+        private IReadOnlyList<string> Decode(byte[] buffer, int length)
+        {
+            lock (_decodeGate)
+            {
+                var offset = 0;
+                if (_discardUntilNewline)
+                {
+                    var newline = Array.IndexOf(buffer, (byte)'\n', 0, length);
+                    if (newline < 0)
+                    {
+                        return [];
+                    }
+                    _discardUntilNewline = false;
+                    offset = newline + 1;
+                }
+
+                return offset >= length
+                    ? []
+                    : _lineAssembler.Append(buffer.AsSpan(offset, length - offset));
+            }
+        }
+
+        private static void ReportLines(IProgress<string>? sink, IEnumerable<string> lines)
+        {
+            if (sink is null) return;
+            foreach (var line in lines)
+            {
+                if (line.Length > 0)
+                {
+                    sink.Report(line);
+                }
+            }
         }
 
         private static string? PickLatestFile(string directory)
@@ -471,36 +548,6 @@ namespace LocalEnvManager.Services
         private static long SafeLength(FileInfo f)
         {
             try { return f.Length; } catch { return 0; }
-        }
-
-        private static void Emit(byte[] buffer, int length, IProgress<string>? sink)
-        {
-            if (sink is null || length <= 0) return;
-            var text = Encoding.UTF8.GetString(buffer, 0, length);
-            foreach (var line in SplitLines(text))
-            {
-                if (line.Length > 0) sink.Report(line);
-            }
-        }
-
-        private static IEnumerable<string> SplitLines(string text)
-        {
-            int start = 0;
-            for (int i = 0; i < text.Length; i++)
-            {
-                var c = text[i];
-                if (c == '\n')
-                {
-                    var end = i;
-                    if (end > start && text[end - 1] == '\r') end--;
-                    yield return text.Substring(start, end - start);
-                    start = i + 1;
-                }
-            }
-            if (start < text.Length)
-            {
-                yield return text.Substring(start);
-            }
         }
 
         private IProgress<string>? _currentSink;

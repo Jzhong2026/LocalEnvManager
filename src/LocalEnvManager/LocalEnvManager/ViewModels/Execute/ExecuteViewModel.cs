@@ -359,6 +359,17 @@ namespace LocalEnvManager.ViewModels
                 var stopped = await _runner.StopAsync(project, sink);
                 if (stopped)
                 {
+                    // A uvicorn service that had already bound its port is no longer
+                    // "Successful" once the user stops it. Reflect that immediately;
+                    // a stop during startup is handled by the pipeline's Cancelled path.
+                    if (project.DeploymentMode == DeploymentMode.Uvicorn
+                        && project.LastRunState == ExecutionState.Success)
+                    {
+                        project.LastRunState = ExecutionState.Idle;
+                        project.LastExecutionMessage = "已停止（用户停止服务）。";
+                        project.LatestLogSnippet = "已停止";
+                        project.HasLatestError = false;
+                    }
                     _logger.Append(LogEntry.LogLevel.Warn,
                         $"[{project.Name}] 用户请求停止进程。");
                 }
@@ -435,6 +446,7 @@ namespace LocalEnvManager.ViewModels
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
             var deps = new Dictionary<ManagedProject, List<ManagedProject>>();
+            var blockedReasons = new Dictionary<ManagedProject, string>();
             foreach (var project in targets)
             {
                 var list = new List<ManagedProject>();
@@ -448,8 +460,14 @@ namespace LocalEnvManager.ViewModels
                     }
                     if (!selectedByName.TryGetValue(name, out var sel))
                     {
+                        // Do not run a project whose declared dependency was left
+                        // unchecked — that silently breaks the ordering contract the
+                        // help text promises. Block it and tell the user which box
+                        // to tick.
+                        blockedReasons[project] =
+                            $"依赖项目 {dep.Name} 未勾选，已跳过执行。请勾选依赖项目后重试。";
                         _logger.Append(LogEntry.LogLevel.Warn,
-                            $"[{project.Name}] 依赖项目 {dep.Name} 未勾选。");
+                            $"[{project.Name}] {blockedReasons[project]}");
                         continue;
                     }
                     list.Add(sel);
@@ -460,8 +478,34 @@ namespace LocalEnvManager.ViewModels
             var remaining = new HashSet<ManagedProject>(targets);
             var completed = new HashSet<ManagedProject>();
             var running = new Dictionary<Task, ManagedProject>();
+
+            foreach (var (project, reason) in blockedReasons)
+            {
+                remaining.Remove(project);
+                project.LastRunState = ExecutionState.Failed;
+                project.LastExecutionMessage = reason;
+                project.LatestLogSnippet = reason;
+                project.HasLatestError = true;
+                completed.Add(project);
+            }
+
             while (remaining.Count > 0 || running.Count > 0)
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    // Anything still queued never started. Mark it as cancelled
+                    // (Idle) rather than leaving a stale Running/Failed state.
+                    foreach (var project in remaining)
+                    {
+                        project.LastRunState = ExecutionState.Idle;
+                        project.LastExecutionMessage = "已取消（未执行）。";
+                        project.LatestLogSnippet = "已取消";
+                        project.HasLatestError = false;
+                    }
+                    try { await Task.WhenAll(running.Keys); } catch { }
+                    return;
+                }
+
                 var ready = remaining
                     .Where(p => deps[p].All(completed.Contains))
                     .ToList();
@@ -546,7 +590,10 @@ namespace LocalEnvManager.ViewModels
             {
                 if (!string.IsNullOrWhiteSpace(line))
                 {
-                    _events.PublishOnCurrentThread(new ConsoleLineMessage(projectId, line));
+                    // The runner tags stderr output with a "|stderr] " channel prefix;
+                    // surface that as a channel marker without treating it as an error.
+                    var isStderr = line.Contains("|stderr]", StringComparison.OrdinalIgnoreCase);
+                    _events.PublishOnCurrentThread(new ConsoleLineMessage(projectId, line, isStderr));
                 }
             });
             var progress = new ChainedProgress(_logger.Tee(new Progress<string>(_ => { })), teeSink);
@@ -559,28 +606,42 @@ namespace LocalEnvManager.ViewModels
                 // means the server process remains alive after this method returns.
                 project.HasRunningProcess =
                     project.DeploymentMode == DeploymentMode.Uvicorn && result.Success;
-                // Distinguish "user pressed Stop" from a real failure. The runner
-                // tags user-initiated stops with "已停止" in the message; treat that
-                // as a soft cancellation (state -> Idle, no red tint) instead of
-                // showing the project as a Failed row.
-                var stoppedByUser = result.Message?.Contains("已停止", StringComparison.Ordinal) == true;
-                if (stoppedByUser)
+                switch (result.EffectiveOutcome)
                 {
-                    project.LastRunState = ExecutionState.Idle;
-                    project.LastExecutionMessage = result.Message;
-                    project.LatestLogSnippet = "已停止";
-                    project.HasLatestError = false;
+                    case ProjectExecutionOutcome.Cancelled:
+                        // User-initiated Stop/Cancel is a soft outcome: Idle, no red tint.
+                        project.LastRunState = ExecutionState.Idle;
+                        project.LastExecutionMessage = result.Message;
+                        project.LatestLogSnippet = "已停止";
+                        project.HasLatestError = false;
+                        break;
+
+                    case ProjectExecutionOutcome.Success:
+                        project.LastRunState = ExecutionState.Success;
+                        project.LastExecutionMessage = result.Message;
+                        project.LatestLogSnippet = "执行完成";
+                        project.HasLatestError = false;
+                        break;
+
+                    default:
+                        project.LastRunState = ExecutionState.Failed;
+                        project.LastExecutionMessage = result.Message;
+                        project.LatestLogSnippet = $"执行失败：{Truncate(result.Message, 80)}";
+                        project.HasLatestError = true;
+                        break;
                 }
-                else
-                {
-                    project.LastRunState = result.Success ? ExecutionState.Success : ExecutionState.Failed;
-                    project.LastExecutionMessage = result.Message;
-                    project.LatestLogSnippet = result.Success
-                        ? "执行完成"
-                        : $"执行失败：{Truncate(result.Message, 80)}";
-                    project.HasLatestError = !result.Success;
-                }
-                _events.PublishOnCurrentThread(new ProjectRunFinishedMessage(projectId, result.Success, result.Message));
+                _events.PublishOnCurrentThread(new ProjectRunFinishedMessage(
+                    projectId, result.Success, result.Message,
+                    result.EffectiveOutcome == ProjectExecutionOutcome.Cancelled));
+            }
+            catch (OperationCanceledException)
+            {
+                project.LastRunState = ExecutionState.Idle;
+                project.LastExecutionMessage = "已停止（用户取消）。";
+                project.LatestLogSnippet = "已停止";
+                project.HasLatestError = false;
+                _events.PublishOnCurrentThread(new ProjectRunFinishedMessage(
+                    projectId, false, project.LastExecutionMessage, cancelled: true));
             }
             catch (Exception ex)
             {
@@ -644,12 +705,18 @@ namespace LocalEnvManager.ViewModels
 
         public Task HandleAsync(ProjectsChangedMessage message, CancellationToken cancellationToken)
         {
-            // Drop pane entries whose backing project has been removed.
+            // Drop pane entries whose backing project has been removed. Dispose the
+            // child view-model so its flush timer, EventAggregator subscription and
+            // FileSystemWatcher are actually released instead of leaked.
             var liveIds = new HashSet<int>(_catalog.Projects.Select(_catalog.GetProjectId));
             var dead = LiveLogPanes.Keys.Where(id => !liveIds.Contains(id)).ToList();
             foreach (var id in dead)
             {
-                LiveLogPanes.Remove(id);
+                if (LiveLogPanes.Remove(id, out var pane))
+                {
+                    pane.ViewModel?.Dispose();
+                }
+                _consoleBacklog.Remove(id);
             }
             if (_selectedProject is not null && !_catalog.Projects.Contains(_selectedProject))
             {
@@ -715,6 +782,49 @@ namespace LocalEnvManager.ViewModels
             {
                 NotifyOfPropertyChange(nameof(UpdateSummary));
             }
+            else if (e.PropertyName is nameof(ManagedProject.DeploymentMode)
+                or nameof(ManagedProject.LogsDirectory)
+                or nameof(ManagedProject.SourcePath)
+                or nameof(ManagedProject.TargetPath))
+            {
+                // The right-pane implementation depends on all of these (console vs
+                // file tail, and where the tail points). A cached pane would otherwise
+                // keep watching the old directory / keep showing the old kind.
+                if (sender is ManagedProject project)
+                {
+                    InvalidatePane(project);
+                }
+            }
+        }
+
+        private void InvalidatePane(ManagedProject project)
+        {
+            var id = _catalog.GetProjectId(project);
+            if (LiveLogPanes.Remove(id, out var pane))
+            {
+                pane.ViewModel?.Dispose();
+            }
+            _consoleBacklog.Remove(id);
+
+            if (ReferenceEquals(_selectedProject, project))
+            {
+                EnsurePaneFor(project);
+                NotifyOfPropertyChange(nameof(ActiveLiveLog));
+            }
+        }
+
+        protected override Task OnDeactivateAsync(bool close, CancellationToken cancellationToken)
+        {
+            if (close)
+            {
+                foreach (var pane in LiveLogPanes.Values)
+                {
+                    pane.ViewModel?.Dispose();
+                }
+                LiveLogPanes.Clear();
+                _consoleBacklog.Clear();
+            }
+            return base.OnDeactivateAsync(close, cancellationToken);
         }
     }
 }

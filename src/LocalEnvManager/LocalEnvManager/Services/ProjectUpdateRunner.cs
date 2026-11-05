@@ -38,14 +38,34 @@ namespace LocalEnvManager.Services
             IProgress<string>? logProgress = null);
     }
 
-    public readonly record struct ProjectExecutionResult(bool Success, string Message);
+    public enum ProjectExecutionOutcome
+    {
+        Success,
+        Failed,
+        /// <summary>The run was interrupted by the user (per-project Stop or batch Cancel).
+        /// Callers must map this to Idle, not Failed.</summary>
+        Cancelled
+    }
+
+    public readonly record struct ProjectExecutionResult(
+        bool Success,
+        string Message,
+        ProjectExecutionOutcome? Outcome = null)
+    {
+        public ProjectExecutionOutcome EffectiveOutcome =>
+            Outcome ?? (Success ? ProjectExecutionOutcome.Success : ProjectExecutionOutcome.Failed);
+
+        public static ProjectExecutionResult Cancelled(string message) =>
+            new(false, message, ProjectExecutionOutcome.Cancelled);
+    }
 
     public sealed class ProjectUpdateRunner : IProjectUpdateRunner
     {
         // Keep long-running uvicorn processes rooted so their async output readers
-        // remain active and continue feeding log lines into the UI.
-        private static readonly ConcurrentDictionary<string, Process> s_uvicornProcesses =
-            new(StringComparer.OrdinalIgnoreCase);
+        // remain active and continue feeding log lines into the UI. Keyed by the
+        // project instance (reference equality) instead of the display name so two
+        // projects that share a name cannot stop or own each other's process.
+        private static readonly ConcurrentDictionary<ManagedProject, Process> s_uvicornProcesses = new();
 
         /// <summary>
         /// Registers a cancellation callback that kills the process when the token fires.
@@ -72,6 +92,50 @@ namespace LocalEnvManager.Services
             ProjectExecutionOptions options,
             IProgress<string>? logProgress = null,
             CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                return await ExecuteCoreAsync(project, options, logProgress, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                Report(logProgress, $"[{project?.Name}] 已停止（用户取消）。");
+                return ProjectExecutionResult.Cancelled(
+                    $"{project?.Name}: 已停止（用户取消）。");
+            }
+        }
+
+        private async Task<ProjectExecutionResult> ExecuteCoreAsync(
+            ManagedProject project,
+            ProjectExecutionOptions options,
+            IProgress<string>? logProgress,
+            CancellationToken cancellationToken)
+        {
+            if (project is null) return new ProjectExecutionResult(false, "No project supplied.");
+
+            // One token for the whole pipeline (pull -> IIS -> command -> sync), so a
+            // per-project Stop works even while we're still in git pull / file copy /
+            // port cleanup, not only while the child command is running.
+            var projectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            s_projectCtses[project] = projectCts;
+            try
+            {
+                return await ExecuteCoreWithTokenAsync(project, options, logProgress, projectCts.Token)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                s_projectCtses.TryRemove(project, out _);
+                projectCts.Dispose();
+            }
+        }
+
+        private async Task<ProjectExecutionResult> ExecuteCoreWithTokenAsync(
+            ManagedProject project,
+            ProjectExecutionOptions options,
+            IProgress<string>? logProgress,
+            CancellationToken cancellationToken)
         {
             if (project is null) return new ProjectExecutionResult(false, "No project supplied.");
 
@@ -130,6 +194,10 @@ namespace LocalEnvManager.Services
                         _ => new ProjectExecutionResult(false, $"Unsupported deployment mode: {project.DeploymentMode}.")
                     };
                 }
+                catch (OperationCanceledException)
+                {
+                    result = ProjectExecutionResult.Cancelled($"{project.Name}: 已停止（用户取消）。");
+                }
                 catch (Exception ex)
                 {
                     result = new ProjectExecutionResult(false, $"{project.Name} failed: {ex.Message}");
@@ -151,15 +219,29 @@ namespace LocalEnvManager.Services
                             cancellationToken);
                     }
 
-                    Report(logProgress, $"[{project.Name}] → syncing backup folder to target");
-                    var sync = await SyncBackupToTargetAsync(project);
-                    Report(logProgress,
-                        sync.Success
-                            ? sync.Message.StartsWith("Skipped", StringComparison.Ordinal)
-                                ? $"[{project.Name}] ⊘ backup sync skipped (paths not configured)"
-                                : $"[{project.Name}] ✓ {sync.Message}"
-                            : $"[{project.Name}] ✗ {sync.Message}");
-                    result = Combine(result.Message, sync);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        result = ProjectExecutionResult.Cancelled(
+                            $"{project.Name}: 已停止（用户取消）。");
+                    }
+                    else
+                    {
+                        Report(logProgress, $"[{project.Name}] → syncing backup folder to target");
+                        var sync = await SyncBackupToTargetAsync(project);
+                        Report(logProgress,
+                            sync.Success
+                                ? sync.Message.StartsWith("Skipped", StringComparison.Ordinal)
+                                    ? $"[{project.Name}] ⊘ backup sync skipped (paths not configured)"
+                                    : $"[{project.Name}] ✓ {sync.Message}"
+                                : $"[{project.Name}] ✗ {sync.Message}");
+                        result = Combine(result.Message, sync);
+
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            result = ProjectExecutionResult.Cancelled(
+                                $"{project.Name}: 已停止（用户取消）。");
+                        }
+                    }
                 }
             }
             finally
@@ -192,7 +274,7 @@ namespace LocalEnvManager.Services
         // could be found (already finished, or a dotnet publish/build that exits on
         // its own).
         //
-        // For uvicorn: looks up the launcher in `s_uvicornProcesses` by project name,
+        // For uvicorn: looks up the launcher in `s_uvicornProcesses` by project instance,
         // calls `Kill(entireProcessTree: true)` on it, then walks the launcher tree via
         // WMI and kills every descendant (the FastAPI worker python process that holds
         // the LISTENING socket, not the launcher). Finally removes the dict entry.
@@ -204,41 +286,49 @@ namespace LocalEnvManager.Services
         // new run starts.
         //
         // Idempotent: calling Stop twice in a row on the same project is safe.
-        public Task<bool> StopAsync(
+        public async Task<bool> StopAsync(
             ManagedProject project,
             IProgress<string>? logProgress = null)
         {
-            if (project is null) return Task.FromResult(false);
+            if (project is null) return false;
 
             switch (project.DeploymentMode)
             {
                 case DeploymentMode.Uvicorn:
-                    return Task.FromResult(StopUvicornProcess(project, logProgress));
+                    // Cancel the whole pipeline first so git pull / sync / port cleanup /
+                    // WaitForPortBoundAsync unwind with a typed Cancelled result instead
+                    // of "launcher exited unexpectedly". The executor owns disposal.
+                    if (s_projectCtses.TryGetValue(project, out var uvicornCts))
+                    {
+                        try { uvicornCts.Cancel(); } catch { }
+                    }
+                    return await StopUvicornProcessAsync(project, logProgress)
+                        .ConfigureAwait(false);
 
                 case DeploymentMode.PowerShellCommand:
-                    if (s_powerShellCtses.TryGetValue(project.Name, out var cts))
+                    if (s_projectCtses.TryGetValue(project, out var cts))
                     {
                         try
                         {
                             cts.Cancel();
                             Report(logProgress, $"[{project.Name}] 正在终止 PowerShell 进程…");
-                            return Task.FromResult(true);
+                            return true;
                         }
                         catch { }
                     }
-                    return Task.FromResult(false);
+                    return false;
 
                 default:
                     // dotnet publish / build exit on their own — nothing to stop.
-                    return Task.FromResult(false);
+                    return false;
             }
         }
 
-        // Per-project CancellationTokenSource registry so Stop can cancel PowerShell
-        // independently of the batch CTS. Populated by the PowerShell executor and
-        // disposed when the process exits.
-        private static readonly ConcurrentDictionary<string, CancellationTokenSource>
-            s_powerShellCtses = new(StringComparer.OrdinalIgnoreCase);
+        // Per-project CancellationTokenSource registry so Stop can cancel one project
+        // without touching sibling projects. Keyed by project instance (reference
+        // equality) so duplicate display names cannot cross-cancel each other.
+        private static readonly ConcurrentDictionary<ManagedProject, CancellationTokenSource>
+            s_projectCtses = new();
 
         // Hard ceiling on a single Stop attempt. The previous implementation could
         // hang the UI because `process.Dispose()` waits for any pending
@@ -249,44 +339,39 @@ namespace LocalEnvManager.Services
         // the app or restarts the project.
         private const int StopTimeoutMs = 5000;
 
-        private static bool StopUvicornProcess(
+        private static async Task<bool> StopUvicornProcessAsync(
             ManagedProject project,
             IProgress<string>? logProgress)
         {
-            var killed = false;
-
-            // Snapshot the keys first so we can mutate the dict while iterating.
-            foreach (var key in s_uvicornProcesses.Keys.ToArray())
+            if (!s_uvicornProcesses.TryRemove(project, out var process) || process is null)
             {
-                if (!key.StartsWith(project.Name + "|", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (!s_uvicornProcesses.TryRemove(key, out var process) || process is null)
-                    continue;
-
-                // Run the kill sequence on a worker thread so a hung WMI query
-                // or pending stdout read can't pin the dispatcher.
-                var processId = -1;
-                try { processId = process.Id; } catch { }
-
-                var task = Task.Run(() => KillUvicornProcessTree(process, project.Name, logProgress));
-                if (!task.Wait(StopTimeoutMs))
-                {
-                    Report(logProgress,
-                        $"[{project.Name}] Stop 等待超过 {StopTimeoutMs / 1000}s,放弃等待(进程可能仍在被系统回收)。");
-                }
-
-                // CRITICAL: do NOT call process.Dispose(). With RedirectStandardOutput=true
-                // (which uvicorn uses), Dispose synchronously waits for the stdout
-                // read pump to drain, and a uvicorn worker keeps writing — the wait
-                // never completes and the UI hangs. The Process object will be
-                // GC'd once the dict stops referencing it; leaked OS handles are
-                // reclaimed when the app exits.
-                killed = true;
-
-                _ = processId; // suppress unused warning
+                return false;
             }
 
-            return killed;
+            // Run the kill sequence on a worker thread so a hung WMI query or pending
+            // stdout read can't pin the dispatcher. The previous implementation used
+            // task.Wait(5000) on the caller's thread, which blocked the UI for up to
+            // five seconds. Use WhenAny so the caller stays responsive.
+            var killTask = Task.Run(() => KillUvicornProcessTree(process, project.Name, logProgress));
+            var completed = await Task.WhenAny(killTask, Task.Delay(StopTimeoutMs))
+                .ConfigureAwait(false);
+            if (completed != killTask)
+            {
+                Report(logProgress,
+                    $"[{project.Name}] Stop 等待超过 {StopTimeoutMs / 1000}s,放弃等待(进程可能仍在被系统回收)。");
+            }
+            else
+            {
+                try { await killTask.ConfigureAwait(false); } catch { }
+            }
+
+            // CRITICAL: do NOT call process.Dispose(). With RedirectStandardOutput=true
+            // (which uvicorn uses), Dispose synchronously waits for the stdout
+            // read pump to drain, and a uvicorn worker keeps writing — the wait
+            // never completes and the UI hangs. The Process object will be
+            // GC'd once the dict stops referencing it; leaked OS handles are
+            // reclaimed when the app exits.
+            return true;
         }
 
         // Run on a worker thread. Walks the process tree via WMI and kills every
@@ -597,28 +682,11 @@ namespace LocalEnvManager.Services
 
             var startInfo = CreateProcessStartInfo("powershell", arguments, cwd);
 
-            // Build a linked CTS so the per-project "Stop" button can cancel
-            // THIS project's PowerShell without affecting sibling projects that
-            // share the batch token. Linked → batch Cancel still propagates.
-            var projectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            // Register so StopAsync(project) can find it.
-            s_powerShellCtses[project.Name] = projectCts;
-
-            ProjectExecutionResult result;
-            try
-            {
-                result = await RunCapturedProcessAsync(
-                    project.Name, "powershell", arguments, startInfo, logProgress, projectCts.Token);
-            }
-            finally
-            {
-                // Drop the per-project registration so a later Stop on the same
-                // project (after it finished) is a no-op.
-                if (s_powerShellCtses.TryRemove(project.Name, out _))
-                {
-                    projectCts.Dispose();
-                }
-            }
+            // The per-project token is owned by ExecuteCoreAsync, so Stop cancels
+            // this command without affecting sibling projects; batch Cancel still
+            // propagates through the linked token.
+            var result = await RunCapturedProcessAsync(
+                project.Name, "powershell", arguments, startInfo, logProgress, cancellationToken);
 
             Report(logProgress,
                 result.Success
@@ -714,6 +782,8 @@ namespace LocalEnvManager.Services
                     $"{project.Name} requires a valid source path before starting uvicorn.");
             }
 
+            // The per-project token is owned by ExecuteCoreAsync and covers sync,
+            // port cleanup and the launch, so Stop interrupts the whole sequence.
             // Sync backup files into the target before launching the service.
             // File.Copy / Directory.EnumerateFiles are synchronous and can take
             // seconds on large folders; push the whole call onto the thread pool
@@ -730,6 +800,10 @@ namespace LocalEnvManager.Services
             {
                 return sync;
             }
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return ProjectExecutionResult.Cancelled($"{project.Name}: 已停止（用户取消）。");
+            }
 
             var arguments = BuildUvicornArguments(project);
             if (arguments is null)
@@ -738,13 +812,23 @@ namespace LocalEnvManager.Services
                     $"{project.Name} requires uvicorn command arguments (e.g. main:app --port 8000).");
             }
 
-            // Free the target port first: if a previous uvicorn (or anything else) is
-            // still listening on it, the new instance can't bind. Kill the occupant so
-            // the relaunch succeeds instead of silently failing to start.
+            // Free the target port first, but only if the occupant is a process this
+            // application launched for *this* project. An unknown listener may belong
+            // to an unrelated service and must never be terminated automatically.
             int port = 0;
             if (TryExtractPort(arguments, out port))
             {
-                await FreePortIfOccupiedAsync(port, project.Name, logProgress);
+                var portReady = await FreePortIfOccupiedAsync(project, port, logProgress)
+                    .ConfigureAwait(false);
+                if (!portReady)
+                {
+                    return new ProjectExecutionResult(false,
+                        $"{project.Name}: 端口 {port} 被其他进程占用且无法确认归属，已取消启动。请手动结束该进程或更换端口。");
+                }
+            }
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return ProjectExecutionResult.Cancelled($"{project.Name}: 已停止（用户取消）。");
             }
 
             var userCommand = project.Command.Trim();
@@ -764,88 +848,93 @@ namespace LocalEnvManager.Services
             // venv launches work without forcing the user to type ".exe".
             exe = ResolveWindowsExecutable(exe, workingDirectory);
 
-            var startInfo = new ProcessStartInfo(exe)
-            {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8,
-                CreateNoWindow = true,
-                WorkingDirectory = workingDirectory
-            };
-            startInfo.Environment["PYTHONIOENCODING"] = "utf-8";
-            startInfo.Environment["PYTHONUTF8"] = "1";
-            foreach (var arg in args)
-                startInfo.ArgumentList.Add(arg);
+                var startInfo = new ProcessStartInfo(exe)
+                {
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8,
+                    CreateNoWindow = true,
+                    WorkingDirectory = workingDirectory
+                };
+                startInfo.Environment["PYTHONIOENCODING"] = "utf-8";
+                startInfo.Environment["PYTHONUTF8"] = "1";
+                foreach (var arg in args)
+                    startInfo.ArgumentList.Add(arg);
 
-            Process? process;
-            try
-            {
-                process = Process.Start(startInfo);
-            }
-            catch (Exception ex)
-            {
-                return new ProjectExecutionResult(false, $"Failed to start uvicorn for {project.Name}: {ex.Message}");
-            }
-            if (process is null)
-            {
-                return new ProjectExecutionResult(false, $"Failed to start uvicorn for {project.Name}.");
-            }
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return ProjectExecutionResult.Cancelled($"{project.Name}: 已停止（用户取消）。");
+                }
 
-            // Stream child output directly into the right-side log pane. This removes
-            // the external console pop-up and keeps runtime diagnostics inside the app.
-            process.OutputDataReceived += (_, e) =>
-            {
-                if (!string.IsNullOrWhiteSpace(e.Data))
-                    Report(logProgress, $"[{project.Name}|uvicorn] {e.Data}");
-            };
-            process.ErrorDataReceived += (_, e) =>
-            {
-                if (!string.IsNullOrWhiteSpace(e.Data))
-                    Report(logProgress, $"[{project.Name}|uvicorn|stderr] {e.Data}");
-            };
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-
-            var preview = BuildPreview(exe, args);
-            Report(logProgress, $"[{project.Name}] ✓ uvicorn launched ({preview})");
-
-            var processKey = $"{project.Name}|{workingDirectory}";
-            if (s_uvicornProcesses.TryGetValue(processKey, out var previous))
-            {
+                Process? process;
                 try
                 {
-                    if (!previous.HasExited)
-                        previous.Kill(entireProcessTree: true);
+                    process = Process.Start(startInfo);
                 }
-                catch { }
-            }
-            s_uvicornProcesses[processKey] = process;
-
-            // A successful startup returns before the server exits. Keep the Stop
-            // affordance in sync with the actual launcher lifetime instead of
-            // relying on the one-shot update result.
-            process.EnableRaisingEvents = true;
-            process.Exited += (_, _) =>
-            {
-                if (s_uvicornProcesses.TryGetValue(processKey, out var tracked)
-                    && ReferenceEquals(tracked, process))
+                catch (Exception ex)
                 {
-                    s_uvicornProcesses.TryRemove(processKey, out _);
-                    project.HasRunningProcess = false;
+                    return new ProjectExecutionResult(false, $"Failed to start uvicorn for {project.Name}: {ex.Message}");
                 }
-            };
+                if (process is null)
+                {
+                    return new ProjectExecutionResult(false, $"Failed to start uvicorn for {project.Name}.");
+                }
 
-            // Wire the cancellation token so a per-project Stop (or a batch
-            // Cancel) tears down the launcher immediately. The token registration
-            // is disposed by the `using` below — bound to the local lifetime.
-            using var killRegistration = RegisterKillOnCancel(process, cancellationToken);
+                // Stream child output directly into the right-side log pane. This removes
+                // the external console pop-up and keeps runtime diagnostics inside the app.
+                process.OutputDataReceived += (_, e) =>
+                {
+                    if (!string.IsNullOrWhiteSpace(e.Data))
+                        Report(logProgress, $"[{project.Name}|uvicorn] {e.Data}");
+                };
+                process.ErrorDataReceived += (_, e) =>
+                {
+                    if (!string.IsNullOrWhiteSpace(e.Data))
+                        Report(logProgress, $"[{project.Name}|uvicorn|stderr] {e.Data}");
+                };
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
 
-            // Process.Start returns immediately even when the child exits in milliseconds
-            // (wrong venv / import error). Verify the port really binds before reporting
-            // success to the execute grid.
-            return await WaitForPortBoundAsync(port, process.Id, project.Name, logProgress, excludeLauncherPid: false, cancellationToken);
+                var preview = BuildPreview(exe, args);
+                Report(logProgress, $"[{project.Name}] ✓ uvicorn launched ({preview})");
+
+                if (s_uvicornProcesses.TryGetValue(project, out var previous))
+                {
+                    try
+                    {
+                        if (!previous.HasExited)
+                            previous.Kill(entireProcessTree: true);
+                    }
+                    catch { }
+                }
+                s_uvicornProcesses[project] = process;
+
+                // A successful startup returns before the server exits. Keep the Stop
+                // affordance in sync with the actual launcher lifetime instead of
+                // relying on the one-shot update result.
+                process.EnableRaisingEvents = true;
+                process.Exited += (_, _) =>
+                {
+                    if (s_uvicornProcesses.TryGetValue(project, out var tracked)
+                        && ReferenceEquals(tracked, process))
+                    {
+                        s_uvicornProcesses.TryRemove(project, out _);
+                        project.HasRunningProcess = false;
+                    }
+                };
+
+                // Wire the per-project token so a Stop tears down the launcher and
+                // interrupts WaitForPortBoundAsync with a typed Cancelled result.
+                using var killRegistration = RegisterKillOnCancel(process, cancellationToken);
+
+                // Process.Start returns immediately even when the child exits in milliseconds
+                // (wrong venv / import error). Verify the port really binds before reporting
+                // success to the execute grid.
+                return await WaitForPortBoundAsync(
+                    port, process.Id, project.Name, logProgress,
+                    excludeLauncherPid: false, cancellationToken);
         }
 
         // Async port-binding wait. Two failure signals are watched: (1) the
@@ -885,8 +974,8 @@ namespace LocalEnvManager.Services
                 // and let the caller report "cancelled by user".
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    return new ProjectExecutionResult(false,
-                        $"{projectName}: 已停止 — 用户在端口绑定前取消。");
+                    return ProjectExecutionResult.Cancelled(
+                        $"{projectName}: 已停止（用户在端口绑定前取消）。");
                 }
 
                 await Task.Delay(delayMs).ConfigureAwait(false);
@@ -1761,58 +1850,6 @@ exit 0
             return false;
         }
 
-        // Kill every running w3wp.exe (with the process tree) to release any
-        // exclusive file handles on the publish output directory. IIS will
-        // respawn a fresh worker the moment the next request arrives, so the
-        // site experiences a brief blip — no manual restart needed.
-        // WaitForExitAsync replaces the previous synchronous WaitForExit(3000)
-        // so the dispatcher isn't held while waiting for each worker to die.
-        private static async Task<bool> KillAllW3wpAsync(
-            string projectName,
-            IProgress<string>? logProgress,
-            CancellationToken cancellationToken)
-        {
-            var killed = 0;
-            foreach (var proc in Process.GetProcessesByName("w3wp"))
-            {
-                try
-                {
-                    proc.Kill(entireProcessTree: true);
-                    try
-                    {
-                        // Bounded wait via Task.WhenAny — if the worker takes
-                        // more than 3s to die (typically because of hung DLL
-                        // unload), move on; the publish will surface the real
-                        // error later.
-                        await Task.WhenAny(
-                            proc.WaitForExitAsync(),
-                            Task.Delay(3000, cancellationToken)).ConfigureAwait(false);
-                        killed++;
-                    }
-                    catch
-                    {
-                        // Process may have exited on its own or be access-denied.
-                    }
-                }
-                catch
-                {
-                    // Process may have exited on its own or be access-denied.
-                }
-                finally
-                {
-                    proc.Dispose();
-                }
-            }
-            if (killed > 0)
-            {
-                Report(logProgress, $"[{projectName}] → 已结束 {killed} 个 w3wp 进程（IIS 会在下次请求时自动拉起新 worker）");
-                // Brief settle: let kernel release the file handles before publish.
-                await Task.Delay(500, cancellationToken);
-                return true;
-            }
-            return false;
-        }
-
         private static IReadOnlyList<string>? BuildUvicornArguments(ManagedProject project)
         {
             var trimmed = project.Command.Trim();
@@ -1846,16 +1883,17 @@ exit 0
             return true;
         }
 
-        // If something is already listening on the given port, terminate the owning
-        // process(es) so the fresh uvicorn instance can bind. Uses `netstat -ano` to
-        // map the port to PIDs — no admin rights needed for same-user processes.
-        // After every kill we re-poll the port: if a leftover process (typically the
-        // cmd.exe wrapper from the previous UseShellExecute=true launch, which holds
-        // the listening socket via TCP inheritance even after the python child dies)
-        // is still bound we escalate to `taskkill /F /T` via PowerShell. That's the
-        // only reliable way to release a socket that the .NET Process.Kill missed,
-        // because taskkill walks the full job-object tree.
-        private async Task FreePortIfOccupiedAsync(int port, string projectName, IProgress<string>? logProgress)
+        // If a port is already in use, release it only when every listener belongs
+        // to the process tree this app launched for the same project. A listener
+        // owned by an unknown service is never killed automatically — the run is
+        // aborted with an actionable message instead.
+        //
+        // Returns true when the port is free (or was freed); false when a foreign
+        // process still holds it.
+        private async Task<bool> FreePortIfOccupiedAsync(
+            ManagedProject project,
+            int port,
+            IProgress<string>? logProgress)
         {
             int currentPid;
             try
@@ -1867,17 +1905,27 @@ exit 0
                 currentPid = -1;
             }
 
-            // First pass: kill via the managed Process API. Fast path that handles
-            // the common case (a same-user python.exe child) without spawning a
-            // PowerShell host. WaitForExitAsync replaces the blocking
-            // Process.WaitForExit(5000) so the dispatcher stays free during the
-            // (rare) case the kernel is slow to release the handle.
             var pids = await FindPidsListeningOnPortAsync(port).ConfigureAwait(false);
             pids.Remove(currentPid);
             if (pids.Count == 0)
             {
-                Report(logProgress, $"[{projectName}] 端口 {port} 空闲，直接启动");
-                return;
+                Report(logProgress, $"[{project.Name}] 端口 {port} 空闲，直接启动");
+                return true;
+            }
+
+            // Build the ownership set once from the launcher this app tracks for
+            // the project (launcher + all descendants, including the python worker).
+            var ownedPids = await Task.Run(() => CollectOwnedPids(project)).ConfigureAwait(false);
+            var foreign = pids.Where(pid => !ownedPids.Contains(pid)).ToList();
+            if (foreign.Count > 0)
+            {
+                foreach (var pid in foreign)
+                {
+                    var name = DescribeProcess(pid);
+                    Report(logProgress,
+                        $"[{project.Name}] ⚠️ 端口 {port} 被未知进程占用：{name} (PID {pid})。为避免误杀，本次启动已取消；请手动结束该进程或更换端口。");
+                }
+                return false;
             }
 
             foreach (var pid in pids)
@@ -1896,7 +1944,8 @@ exit 0
                         // Process may have raced — fine, we just wanted to give
                         // the kernel a beat to release the handle.
                     }
-                    Report(logProgress, $"[{projectName}] 端口 {port} 被占用，已结束进程 {name} (PID {pid})");
+                    Report(logProgress,
+                        $"[{project.Name}] 端口 {port} 被本项目此前的进程占用，已结束 {name} (PID {pid})");
                 }
                 catch (ArgumentException)
                 {
@@ -1904,57 +1953,87 @@ exit 0
                 }
                 catch (Exception ex)
                 {
-                    Report(logProgress, $"[{projectName}] 无法结束占用端口 {port} 的进程 PID {pid}：{ex.Message}");
+                    Report(logProgress,
+                        $"[{project.Name}] 无法结束本项目占用端口 {port} 的进程 PID {pid}：{ex.Message}");
                 }
             }
 
-            // Second pass: wait briefly for the OS to actually release the socket.
-            // On Windows, killing the python child doesn't always free the
-            // LISTENING socket that the cmd.exe wrapper inherited via
-            // CreateProcess — the kernel keeps the port in CLOSE_WAIT for a few
-            // hundred ms. Without this pause the new uvicorn would bind() and get
-            // WSAEADDRINUSE ("Only one usage of each socket address is normally
-            // permitted") even though netstat no longer shows anyone on the port.
-            var stillBound = await WaitForPortFreeAsync(port, seconds: 3).ConfigureAwait(false);
-            if (!stillBound)
+            // Wait briefly for the OS to release the socket; killing the python
+            // child does not always free a LISTENING socket inherited by a wrapper.
+            if (!await WaitForPortFreeAsync(port, seconds: 3).ConfigureAwait(false))
             {
-                Report(logProgress, $"[{projectName}] ✓ 端口 {port} 已释放");
-                return;
+                Report(logProgress, $"[{project.Name}] ✓ 端口 {port} 已释放");
+                return true;
             }
 
-            // Third pass: the .NET kill missed something. Escalate to
-            // `taskkill /F /T /PID <pid>` via PowerShell. /T kills the process tree
-            // (same job-object walk we wanted), /F is the FORCE flag that
-            // bypasses WM_CLOSE/WM_QUERYENDSESSION and terminates immediately.
-            // We re-resolve the PIDs because the first pass may have partially
-            // succeeded: leftover entries are the ones taskkill needs to deal with.
+            // Escalate with taskkill, but only for PIDs that are still proven to be
+            // part of this project's tracked process tree.
             var leftover = await FindPidsListeningOnPortAsync(port).ConfigureAwait(false);
             leftover.Remove(currentPid);
             if (leftover.Count == 0)
             {
-                Report(logProgress, $"[{projectName}] ✓ 端口 {port} 已释放");
-                return;
+                Report(logProgress, $"[{project.Name}] ✓ 端口 {port} 已释放");
+                return true;
             }
 
-            Report(logProgress, $"[{projectName}] → 端口 {port} 仍被占用，使用 taskkill /F /T 强制结束残留进程");
+            var leftoverForeign = leftover.Where(pid => !ownedPids.Contains(pid)).ToList();
+            if (leftoverForeign.Count > 0)
+            {
+                foreach (var pid in leftoverForeign)
+                {
+                    Report(logProgress,
+                        $"[{project.Name}] ⚠️ 端口 {port} 仍被未知进程占用：{DescribeProcess(pid)} (PID {pid})。已取消启动。");
+                }
+                return false;
+            }
+
+            Report(logProgress,
+                $"[{project.Name}] → 端口 {port} 仍被本项目残留进程占用，使用 taskkill /F /T 结束");
             foreach (var pid in leftover)
             {
-                await TryTaskKillAsync(pid, projectName, logProgress).ConfigureAwait(false);
+                await TryTaskKillAsync(pid, project.Name, logProgress).ConfigureAwait(false);
             }
 
-            // Final verification — give the OS up to 5s to settle after the
-            // escalated kill (taskkill can return instantly while the kernel is
-            // still tearing down the socket). If still bound, the new uvicorn is
-            // going to fail no matter what we do; just log and let
-            // WaitForPortBound surface the user-visible error so they know to
-            // reboot / use a different port.
             if (await WaitForPortFreeAsync(port, seconds: 5).ConfigureAwait(false))
             {
-                Report(logProgress, $"[{projectName}] ⚠️ 端口 {port} 释放超时，uvicorn 启动可能失败");
+                Report(logProgress, $"[{project.Name}] ⚠️ 端口 {port} 释放超时，已取消启动");
+                return false;
             }
-            else
+
+            Report(logProgress, $"[{project.Name}] ✓ 端口 {port} 已释放");
+            return true;
+        }
+
+        private static HashSet<int> CollectOwnedPids(ManagedProject project)
+        {
+            if (!s_uvicornProcesses.TryGetValue(project, out var launcher) || launcher is null)
             {
-                Report(logProgress, $"[{projectName}] ✓ 端口 {port} 已释放");
+                return [];
+            }
+
+            try
+            {
+                var rootPid = launcher.Id;
+                var tree = CollectProcessTree(rootPid);
+                tree.Add(rootPid);
+                return tree;
+            }
+            catch
+            {
+                return [];
+            }
+        }
+
+        private static string DescribeProcess(int pid)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                return process.ProcessName;
+            }
+            catch
+            {
+                return "未知进程";
             }
         }
 
@@ -2209,8 +2288,9 @@ exit 0
             }
             catch (OperationCanceledException)
             {
-                Report(logProgress, $"[{projectName}] 已取消");
-                return new ProjectExecutionResult(false, $"{projectName}: cancelled by user.");
+                Report(logProgress, $"[{projectName}] 已停止（用户取消）。");
+                return ProjectExecutionResult.Cancelled(
+                    $"{projectName}: 已停止（用户取消）。");
             }
 
             var standardOutput = await standardOutputTask;

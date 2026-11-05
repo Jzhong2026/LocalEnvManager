@@ -13,7 +13,6 @@
             <converters:EnumBooleanConverter x:Key="EnumBooleanConverter" />
             <converters:ExecutionStateToBrushConverter x:Key="ExecutionStateToBrushConverter" />
             <converters:NotConverter x:Key="NotConverter" />
-            <converters:ErrorTextBrushConverter x:Key="ErrorTextBrushConverter" />
             <ResourceDictionary.MergedDictionaries>
                 <materialDesign:BundledTheme BaseTheme="Light"
                                               PrimaryColor="Indigo"

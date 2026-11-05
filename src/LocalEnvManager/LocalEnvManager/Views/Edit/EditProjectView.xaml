@@ -8,7 +8,7 @@
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         xmlns:vm="clr-namespace:LocalEnvManager.ViewModels"
         mc:Ignorable="d"
-        Title="Edit Project"
+        Title="编辑项目"
         WindowStyle="None"
         AllowsTransparency="True"
         WindowStartupLocation="CenterOwner"
@@ -46,12 +46,13 @@
                     <Button DockPanel.Dock="Right"
                             cal:Message.Attach="[Event Click] = [Action Close]"
                             Style="{StaticResource TitleBarButtonStyle}"
+                            AutomationProperties.Name="关闭"
                             Content="&#xE106;"
                             FontFamily="Segoe MDL2 Assets"
                             VerticalAlignment="Center" />
                     <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="White"
                                VerticalAlignment="Center"
-                               Text="Edit Project" />
+                               Text="编辑项目" />
                 </DockPanel>
             </Border>
 
@@ -59,19 +60,25 @@
             <StackPanel Grid.Row="1" Margin="28,22,28,10">
                 <!-- Project Name -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                    <TextBlock Text="Project Name" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                    <TextBlock Text="项目名称" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
                     <Button Style="{StaticResource HelpIconButtonStyle}"
                             cal:Message.Attach="[Event Click] = [Action HelpProjectName]"
                             Content="?"
                             VerticalAlignment="Center" />
                 </StackPanel>
                 <TextBox Style="{StaticResource CompactTextBoxStyle}"
-                         Text="{Binding Project.Name, UpdateSourceTrigger=PropertyChanged}"
-                         materialDesign:HintAssist.Hint="Project name" />
+                         Text="{Binding Draft.Name, UpdateSourceTrigger=PropertyChanged}"
+                         materialDesign:HintAssist.Hint="项目名称必须唯一" />
+                <TextBlock Text="{Binding NameError}"
+                           Foreground="{StaticResource DangerBrush}"
+                           FontSize="11"
+                           Margin="2,5,0,0"
+                           TextWrapping="Wrap"
+                           Visibility="{Binding HasNameError, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                 <!-- Deployment Mode -->
                 <StackPanel Orientation="Horizontal" Margin="0,16,0,8">
-                    <TextBlock Text="Deployment Mode" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                    <TextBlock Text="部署方式" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
                     <Button Style="{StaticResource HelpIconButtonStyle}"
                             cal:Message.Attach="[Event Click] = [Action HelpDeploymentMode]"
                             Content="?"
@@ -81,7 +88,7 @@
                     <RadioButton Style="{StaticResource ModeChoiceRadioStyle}"
                                  Tag="publish"
                                  ToolTip="dotnet publish"
-                                 IsChecked="{Binding Project.DeploymentMode, Converter={StaticResource EnumBooleanConverter}, ConverterParameter=DotNetPublish}">
+                                 IsChecked="{Binding Draft.DeploymentMode, Converter={StaticResource EnumBooleanConverter}, ConverterParameter=DotNetPublish}">
                         <StackPanel>
                             <materialDesign:PackIcon Kind="PackageVariantClosed" Width="20" Height="20" HorizontalAlignment="Center" />
                             <TextBlock Text="publish" HorizontalAlignment="Center" Margin="0,4,0,0" />
@@ -91,7 +98,7 @@
                                  Tag="build"
                                  ToolTip="dotnet build"
                                  Margin="8,0,0,0"
-                                 IsChecked="{Binding Project.DeploymentMode, Converter={StaticResource EnumBooleanConverter}, ConverterParameter=DotNetBuild}">
+                                 IsChecked="{Binding Draft.DeploymentMode, Converter={StaticResource EnumBooleanConverter}, ConverterParameter=DotNetBuild}">
                         <StackPanel>
                             <materialDesign:PackIcon Kind="Hammer" Width="20" Height="20" HorizontalAlignment="Center" />
                             <TextBlock Text="build" HorizontalAlignment="Center" Margin="0,4,0,0" />
@@ -101,7 +108,7 @@
                                  Tag="ps"
                                  ToolTip="PowerShell command"
                                  Margin="8,0,0,0"
-                                 IsChecked="{Binding Project.DeploymentMode, Converter={StaticResource EnumBooleanConverter}, ConverterParameter=PowerShellCommand}">
+                                 IsChecked="{Binding Draft.DeploymentMode, Converter={StaticResource EnumBooleanConverter}, ConverterParameter=PowerShellCommand}">
                         <StackPanel>
                             <materialDesign:PackIcon Kind="Console" Width="20" Height="20" HorizontalAlignment="Center" />
                             <TextBlock Text="PowerShell" HorizontalAlignment="Center" Margin="0,4,0,0" />
@@ -111,7 +118,7 @@
                                  Tag="uvicorn"
                                  ToolTip="uvicorn"
                                  Margin="8,0,0,0"
-                                 IsChecked="{Binding Project.DeploymentMode, Converter={StaticResource EnumBooleanConverter}, ConverterParameter=Uvicorn}">
+                                 IsChecked="{Binding Draft.DeploymentMode, Converter={StaticResource EnumBooleanConverter}, ConverterParameter=Uvicorn}">
                         <StackPanel>
                             <materialDesign:PackIcon Kind="RocketLaunchOutline" Width="20" Height="20" HorizontalAlignment="Center" />
                             <TextBlock Text="uvicorn" HorizontalAlignment="Center" Margin="0,4,0,0" />
@@ -121,7 +128,7 @@
 
                 <!-- Source Path -->
                 <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
-                    <TextBlock Text="Source Path" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                    <TextBlock Text="源路径" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
                     <Button Style="{StaticResource HelpIconButtonStyle}"
                             cal:Message.Attach="[Event Click] = [Action HelpSourcePath]"
                             Content="?"
@@ -136,28 +143,28 @@
                         <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" />
                     </Button>
                     <TextBox Style="{StaticResource CompactTextBoxStyle}"
-                             Text="{Binding Project.SourcePath, UpdateSourceTrigger=PropertyChanged}"
-                             materialDesign:HintAssist.Hint="Absolute path to project source / working folder" />
+                             Text="{Binding Draft.SourcePath, UpdateSourceTrigger=PropertyChanged}"
+                             materialDesign:HintAssist.Hint="绝对路径：命令执行与 git pull 的工作目录" />
                 </DockPanel>
 
                 <!-- Command -->
                 <StackPanel Visibility="{Binding UsesCommand, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
-                        <TextBlock Text="Command" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                        <TextBlock Text="命令参数" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
                         <Button Style="{StaticResource HelpIconButtonStyle}"
                                 cal:Message.Attach="[Event Click] = [Action HelpCommand]"
                                 Content="?"
                                 VerticalAlignment="Center" />
                     </StackPanel>
                     <TextBox Style="{StaticResource CompactTextBoxStyle}"
-                             Text="{Binding Project.Command, UpdateSourceTrigger=PropertyChanged}"
-                             materialDesign:HintAssist.Hint="切换 Deployment Mode 后会自动填入第一个示例；也可以点 ? 查看并复制更多示例" />
+                             Text="{Binding Draft.Command, UpdateSourceTrigger=PropertyChanged}"
+                             materialDesign:HintAssist.Hint="切换部署方式后会自动填入示例；点 ? 可查看并复制更多示例" />
                 </StackPanel>
 
                 <!-- Target Path -->
                 <StackPanel Visibility="{Binding UsesTargetPath, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
-                        <TextBlock Text="Target Path" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                        <TextBlock Text="目标路径" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
                         <Button Style="{StaticResource HelpIconButtonStyle}"
                                 cal:Message.Attach="[Event Click] = [Action HelpTargetPath]"
                                 Content="?"
@@ -172,15 +179,15 @@
                             <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" />
                         </Button>
                         <TextBox Style="{StaticResource CompactTextBoxStyle}"
-                                 Text="{Binding Project.TargetPath, UpdateSourceTrigger=PropertyChanged}"
-                                 materialDesign:HintAssist.Hint="Absolute path to deploy / run directory" />
+                                 Text="{Binding Draft.TargetPath, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="可选：部署 / 运行目录；覆盖目录会同步到这里" />
                     </DockPanel>
                 </StackPanel>
 
                 <!-- Backup Folder -->
                 <StackPanel Visibility="{Binding UsesBackupFolder, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
-                        <TextBlock Text="Backup Folder" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                        <TextBlock Text="覆盖目录" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
                         <Button Style="{StaticResource HelpIconButtonStyle}"
                                 cal:Message.Attach="[Event Click] = [Action HelpBackupFolder]"
                                 Content="?"
@@ -195,28 +202,28 @@
                             <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" />
                         </Button>
                         <TextBox Style="{StaticResource CompactTextBoxStyle}"
-                                 Text="{Binding Project.BackupFolder, UpdateSourceTrigger=PropertyChanged}"
-                                 materialDesign:HintAssist.Hint="Absolute path to the folder copied into target after build" />
+                                 Text="{Binding Draft.BackupFolder, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="可选：命令成功后递归覆盖到目标路径（不会删除目标里多出的文件）" />
                     </DockPanel>
                 </StackPanel>
 
                 <!-- IIS AppPool Name -->
                 <StackPanel Visibility="{Binding UsesIisAppPool, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
-                        <TextBlock Text="IIS AppPool" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                        <TextBlock Text="IIS 应用池" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
                         <Button Style="{StaticResource HelpIconButtonStyle}"
                                 cal:Message.Attach="[Event Click] = [Action HelpIisAppPool]"
                                 Content="?"
                                 VerticalAlignment="Center" />
                     </StackPanel>
                     <TextBox Style="{StaticResource CompactTextBoxStyle}"
-                             Text="{Binding Project.IisAppPoolName, UpdateSourceTrigger=PropertyChanged}"
-                             materialDesign:HintAssist.Hint="Optional IIS AppPool name to recycle before publish/build and target sync (e.g. LLMAgentApi)" />
+                             Text="{Binding Draft.IisAppPoolName, UpdateSourceTrigger=PropertyChanged}"
+                             materialDesign:HintAssist.Hint="可选：发布/构建和同步前回收的 IIS 应用池（例如 LLMAgentApi）" />
                 </StackPanel>
 
                 <!-- Pull Latest -->
                 <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                    <CheckBox IsChecked="{Binding Project.PullLatest, Mode=TwoWay}"
+                    <CheckBox IsChecked="{Binding Draft.PullLatest, Mode=TwoWay}"
                               Content="更新前执行 git pull"
                               ToolTip="启用后，每次更新会先在源目录执行 git pull；失败时停止该项目的后续更新。"
                               VerticalAlignment="Center" />
@@ -236,27 +243,27 @@
                 </StackPanel>
                 <TextBox Style="{StaticResource CompactTextBoxStyle}"
                          Visibility="Collapsed"
-                         Text="{Binding Project.DependsOn, UpdateSourceTrigger=PropertyChanged}"
+                         Text="{Binding Draft.DependsOn, UpdateSourceTrigger=PropertyChanged}"
                          materialDesign:HintAssist.Hint="以逗号分隔项目名；勾选依赖项目时会先完成依赖，例如 plus-core" />
 
                 <DockPanel>
                     <Button DockPanel.Dock="Right"
-                            Content="Clear"
+                            Content="清除"
                             cal:Message.Attach="[Event Click] = [Action ClearDependency]"
                             Style="{StaticResource FolderBrowseButtonStyle}"
                             Margin="8,0,0,0"
-                            ToolTip="Clear the selected dependency" />
+                            ToolTip="清除已选择的依赖项目" />
                     <ComboBox Style="{StaticResource SectionComboBoxStyle}"
                               ItemsSource="{Binding DependencyOptions}"
                               DisplayMemberPath="Name"
                               SelectedValuePath="Name"
-                              SelectedValue="{Binding Project.DependsOn, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                              materialDesign:HintAssist.Hint="Select the project that must complete first" />
+                              SelectedValue="{Binding Draft.DependsOn, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                              materialDesign:HintAssist.Hint="选择必须先成功的项目（未勾选时会阻止运行）" />
                 </DockPanel>
 
                 <!-- Logs Directory -->
                 <StackPanel Orientation="Horizontal" Margin="0,16,0,6">
-                    <TextBlock Text="Logs Directory" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
+                    <TextBlock Text="日志目录" Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center" />
                     <Button Style="{StaticResource HelpIconButtonStyle}"
                             cal:Message.Attach="[Event Click] = [Action HelpLogsDirectory]"
                             Content="?"
@@ -271,8 +278,8 @@
                         <materialDesign:PackIcon Kind="FolderOpen" Width="16" Height="16" />
                     </Button>
                     <TextBox Style="{StaticResource CompactTextBoxStyle}"
-                             Text="{Binding Project.LogsDirectory, UpdateSourceTrigger=PropertyChanged}"
-                             materialDesign:HintAssist.Hint="留空时按 项目名/源路径/目标路径 自动发现 logs 目录（例如 D:\Plus\Logs\llm-agent-api）" />
+                             Text="{Binding Draft.LogsDirectory, UpdateSourceTrigger=PropertyChanged}"
+                             materialDesign:HintAssist.Hint="留空时自动发现（目标路径优先，其次源路径；例如 D:\Plus\Logs\llm-agent-api）" />
                 </DockPanel>
             </StackPanel>
 
@@ -285,16 +292,17 @@
                                VerticalAlignment="Center"
                                FontSize="11"
                                Foreground="{StaticResource TextTertiaryBrush}"
-                               Text="编辑后会自动保存到磁盘。" />
+                               Text="点击「完成」保存修改；点击「取消」或关闭按钮放弃本次编辑。" />
                     <StackPanel DockPanel.Dock="Right"
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Right">
                         <Button Content="取消"
-                                cal:Message.Attach="[Event Click] = [Action Close]"
+                                cal:Message.Attach="[Event Click] = [Action Cancel]"
                                 Style="{StaticResource AddTextButtonStyle}" />
                         <Button Margin="8,0,0,0"
                                 Content="完成"
-                                cal:Message.Attach="[Event Click] = [Action Close]"
+                                cal:Message.Attach="[Event Click] = [Action Complete]"
+                                IsEnabled="{Binding CanComplete}"
                                 Style="{StaticResource PrimaryActionButtonStyle}" />
                     </StackPanel>
                 </DockPanel>

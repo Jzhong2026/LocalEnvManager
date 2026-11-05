@@ -126,7 +126,7 @@ private void OnProjectPropertyChanged(object? sender, PropertyChangedEventArgs e
 
 **根因**:在 `plan_deployment.md` 初始命名时从 `OverlayFolderPath` 重命名为 `BackupFolder`("备份目录"),但语义从来没改。
 
-**当前状态**:未修复。`ParameterHelpCatalog[BackupFolder]` 的中文说明已经反映出真实用途(覆盖),但字段名 / UI 标签仍是别名。
+**当前状态**:UI 文案已修正为「覆盖目录」，并补充了“不会删除目标里多出的文件”的说明；属性名 / JSON 字段仍为 `BackupFolder`（不迁移，保持兼容）。
 
 **建议**(待用户确认后再做):
 - 重命名 property:`BackupFolder` → `OverlayFolder`
@@ -270,18 +270,20 @@ uvicorn 的 launcher 用了 `RedirectStandardOutput = true`。**.NET `Process.Di
 
 **修复**:
 1. **永远不要再对 `RedirectStandardOutput = true` 的 `Process` 调用 `Dispose()`**。
-2. 把 kill 流程整个挪到 worker 线程,加 5 秒硬超时:
+2. 把 kill 流程挪到 worker 线程，用 `WhenAny` 加 5 秒上限——**不要用 `task.Wait`**，那仍会阻塞 UI：
 
 ````csharp
 private const int StopTimeoutMs = 5000;
 
-var task = Task.Run(() => KillUvicornProcessTree(process, projectName, logProgress));
-if (!task.Wait(StopTimeoutMs))
+var killTask = Task.Run(() => KillUvicornProcessTree(process, projectName, logProgress));
+var completed = await Task.WhenAny(killTask, Task.Delay(StopTimeoutMs));
+if (completed != killTask)
 {
     Report(logProgress, $"[{projectName}] Stop 等待超过 {StopTimeoutMs / 1000}s,放弃等待。");
 }
 // 严禁 process.Dispose() — 走 GC + 进程自然退出
 ````
+3. 每个项目使用一个贯穿整条流水线的 CTS（git pull / 同步 / 端口清理 / 启动等待），Stop 不再只覆盖命令执行阶段。
 
 **影响文件**:
 - `Services/ProjectUpdateRunner.cs`

@@ -32,10 +32,10 @@
                                                 Margin="4,0,0,0">
                                             <materialDesign:PackIcon Kind="Delete" Width="14" Height="14" />
                                         </Button>
-                                        <TextBlock Style="{StaticResource CategoryHeaderStyle}"
-                                                   Text="{Binding Name}"
-                                                   VerticalAlignment="Center"
-                                                   Margin="0,0,12,0" />
+                                        <TextBox Style="{StaticResource InlineEditableTitleStyle}"
+                                                 Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                                 ToolTip="点击可直接重命名分类"
+                                                 Margin="0,0,12,0" />
                                     </DockPanel>
 
                                     <!-- Project sub-list (configuration only) -->
@@ -182,7 +182,7 @@
                                Text="{Binding SelectedProject.ProjectPathDisplay, FallbackValue='—', TargetNullValue='—'}"
                                Style="{StaticResource ProjectDetailValueStyle}" />
 
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Command"
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="命令参数"
                                Style="{StaticResource ProjectDetailLabelStyle}" VerticalAlignment="Center" Margin="0,12,0,0" />
                     <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,12,0,0" VerticalAlignment="Center">
                         <Border DockPanel.Dock="Left"
@@ -208,7 +208,7 @@
                                    TextTrimming="CharacterEllipsis" />
                     </DockPanel>
 
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="备份目录"
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="覆盖目录"
                                Style="{StaticResource ProjectDetailLabelStyle}" VerticalAlignment="Center" Margin="0,12,0,0" />
                     <TextBlock Grid.Row="2" Grid.Column="1"
                                Text="{Binding SelectedProject.BackupFolderDisplay, FallbackValue='—', TargetNullValue='—'}"
@@ -220,25 +220,25 @@
                                Text="{Binding SelectedProject.TargetPathDisplay, FallbackValue='—', TargetNullValue='—'}"
                                Style="{StaticResource ProjectDetailValueStyle}" Margin="0,12,0,0" />
 
-                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Logs 目录"
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="日志目录"
                                Style="{StaticResource ProjectDetailLabelStyle}" VerticalAlignment="Center" Margin="0,12,0,0" />
                     <TextBlock Grid.Row="4" Grid.Column="1"
                                Text="{Binding SelectedProject.ResolvedLogsDirectoryDisplay, FallbackValue='—', TargetNullValue='—'}"
                                Style="{StaticResource ProjectDetailValueStyle}" Margin="0,12,0,0" />
 
-                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Git Pull"
+                    <TextBlock Grid.Row="5" Grid.Column="0" Text="拉取最新"
                                Style="{StaticResource ProjectDetailLabelStyle}" VerticalAlignment="Center" Margin="0,12,0,0" />
                     <TextBlock Grid.Row="5" Grid.Column="1"
                                Text="{Binding SelectedProject.PullLatestDisplay, FallbackValue='—', TargetNullValue='—'}"
                                Style="{StaticResource ProjectDetailValueStyle}" Margin="0,12,0,0" />
 
-                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Depends On"
+                    <TextBlock Grid.Row="6" Grid.Column="0" Text="依赖项目"
                                Style="{StaticResource ProjectDetailLabelStyle}" VerticalAlignment="Center" Margin="0,12,0,0" />
                     <TextBlock Grid.Row="6" Grid.Column="1"
                                Text="{Binding SelectedProject.DependsOnDisplay, FallbackValue='—', TargetNullValue='—'}"
                                Style="{StaticResource ProjectDetailValueStyle}" Margin="0,12,0,0" />
 
-                    <TextBlock Grid.Row="7" Grid.Column="0" Text="IIS AppPool"
+                    <TextBlock Grid.Row="7" Grid.Column="0" Text="IIS 应用池"
                                Style="{StaticResource ProjectDetailLabelStyle}" VerticalAlignment="Center" Margin="0,12,0,0" />
                     <TextBlock Grid.Row="7" Grid.Column="1"
                                Text="{Binding SelectedProject.IisAppPoolNameDisplay, FallbackValue='—', TargetNullValue='—'}"

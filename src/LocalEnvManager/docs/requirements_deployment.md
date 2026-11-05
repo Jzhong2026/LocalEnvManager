@@ -1,5 +1,10 @@
 # 需求文档：项目部署管理功能
 
+> **现状说明（2026-11）**：本文记录最初需求，部分内容已与实现不同，阅读时以代码为准：
+> - 路径只支持绝对路径，分类 BasePath 已从模型中移除（`ProjectCategory` 不再携带路径）。
+> - `BackupFolder` 的行为一直是“把覆盖目录内容复制到目标路径”，UI 文案已改为“覆盖目录”，JSON 字段名保持不变。
+> - 编辑对话框实现为 `Views/Edit/EditProjectView.xaml`，不是早期的 `EditProjectDialog.xaml`。
+
 ## 1. 背景
 LocalEnvManager 用于按分类（Category）管理本地项目（Project）并运行其更新/部署流程。当前已实现分类-项目的层级结构与基础执行器，但存在以下问题：
 - 项目缺少完整的部署配置字段（目标路径、备份目录）。

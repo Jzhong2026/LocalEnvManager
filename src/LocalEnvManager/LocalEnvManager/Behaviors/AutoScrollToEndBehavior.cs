@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -6,11 +7,21 @@ using System.Windows.Threading;
 namespace LocalEnvManager.Behaviors
 {
     /// <summary>
-    /// Keeps a log ScrollViewer pinned to its newest content. The scroll is
-    /// deferred until WPF has measured the newly added log lines.
+    /// Keeps a log ScrollViewer pinned to its newest content, but only while the
+    /// user is already at (or very near) the bottom. Scrolling up to read history
+    /// detaches the auto-scroll; scrolling back to the bottom re-attaches it.
+    /// The scroll is deferred until WPF has measured the newly added lines.
     /// </summary>
     public static class AutoScrollToEndBehavior
     {
+        private const double BottomThreshold = 8;
+        private static readonly ConditionalWeakTable<ScrollViewer, ScrollState> States = new();
+
+        private sealed class ScrollState
+        {
+            public bool IsPinned = true;
+        }
+
         public static readonly DependencyProperty IsEnabledProperty =
             DependencyProperty.RegisterAttached(
                 "IsEnabled",
@@ -41,16 +52,38 @@ namespace LocalEnvManager.Behaviors
             }
         }
 
-        private static void OnLoaded(object sender, RoutedEventArgs args) =>
-            ScrollToEndAfterLayout((ScrollViewer)sender);
+        private static void OnLoaded(object sender, RoutedEventArgs args)
+        {
+            var scrollViewer = (ScrollViewer)sender;
+            States.GetOrCreateValue(scrollViewer).IsPinned = true;
+            ScrollToEndAfterLayout(scrollViewer);
+        }
 
         private static void OnScrollChanged(object sender, ScrollChangedEventArgs args)
         {
+            if (sender is not ScrollViewer scrollViewer) return;
+            var state = States.GetOrCreateValue(scrollViewer);
+
             if (args.ExtentHeightChange > 0)
             {
-                ScrollToEndAfterLayout((ScrollViewer)sender);
+                if (state.IsPinned)
+                {
+                    ScrollToEndAfterLayout(scrollViewer);
+                }
+                return;
+            }
+
+            // A user scroll (wheel / drag / keyboard) changes the offset without
+            // changing the extent. Re-evaluate whether we should keep following.
+            if (args.VerticalChange != 0)
+            {
+                state.IsPinned = IsAtBottom(scrollViewer);
             }
         }
+
+        private static bool IsAtBottom(ScrollViewer scrollViewer) =>
+            scrollViewer.VerticalOffset + scrollViewer.ViewportHeight
+                >= scrollViewer.ExtentHeight - BottomThreshold;
 
         private static void ScrollToEndAfterLayout(ScrollViewer scrollViewer)
         {

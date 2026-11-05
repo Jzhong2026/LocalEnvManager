@@ -27,6 +27,7 @@ namespace LocalEnvManager.ViewModels
         private readonly List<string> _pending = new();
         private System.Threading.Timer? _flushTimer;
         private int _projectId;
+        private bool _disposed;
 
         public LogFileLiveLogViewModel(
             int projectId,
@@ -103,6 +104,7 @@ namespace LocalEnvManager.ViewModels
             // Buffer on worker threads and drain one batch on the dispatcher.
             _watcher.SetSink(new Progress<string>(line =>
             {
+                if (_disposed) return;
                 lock (_bufferGate) _pending.Add(line);
             }));
             _flushTimer ??= new System.Threading.Timer(
@@ -137,6 +139,7 @@ namespace LocalEnvManager.ViewModels
 
         private void FlushPending()
         {
+            if (_disposed) return;
             string[] lines;
             lock (_bufferGate)
             {
@@ -196,14 +199,22 @@ namespace LocalEnvManager.ViewModels
             return Task.CompletedTask;
         }
 
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            try { _events.Unsubscribe(this); } catch { }
+            _flushTimer?.Dispose();
+            _flushTimer = null;
+            try { _watcher.Dispose(); } catch { }
+            lock (_bufferGate) { _pending.Clear(); }
+        }
+
         protected override System.Threading.Tasks.Task OnDeactivateAsync(bool close, System.Threading.CancellationToken cancellationToken)
         {
             if (close)
             {
-                try { _events.Unsubscribe(this); } catch { }
-                _flushTimer?.Dispose();
-                _flushTimer = null;
-                try { _watcher.Dispose(); } catch { }
+                Dispose();
             }
             return base.OnDeactivateAsync(close, cancellationToken);
         }

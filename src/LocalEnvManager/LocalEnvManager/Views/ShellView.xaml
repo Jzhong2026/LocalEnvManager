@@ -51,8 +51,8 @@
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="White"
                                    Text="Local Environment Manager" />
-                        <TextBlock FontSize="12" Foreground="#BBFFFFFF" Margin="0,2,0,0"
-                                   Text="Manage local projects by category and run their update flow." />
+                        <TextBlock FontSize="12" Foreground="White" Opacity="0.9" Margin="0,2,0,0"
+                                   Text="按分类管理本地项目并执行更新流程。" />
                     </StackPanel>
                 </StackPanel>
             </DockPanel>
