@@ -25,6 +25,9 @@ namespace LocalEnvManager.ViewModels
         /// <summary>The lines currently being shown to the user.</summary>
         IEnumerable<string> Lines { get; }
 
+        /// <summary>True when at least one line is present; drives the empty-state placeholder.</summary>
+        bool HasLines { get; }
+
         /// <summary>
         /// True when the dark console should be visible. When false, the view
         /// shows the placeholder (e.g. "等待 stdout…" or "未配置实时日志").

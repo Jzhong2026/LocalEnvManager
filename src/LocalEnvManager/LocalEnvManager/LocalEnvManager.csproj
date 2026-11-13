@@ -27,4 +27,8 @@
     <Resource Include="Assets\app-icon.ico" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\LocalEnvManager.Mcp.Contracts\LocalEnvManager.Mcp.Contracts.csproj" />
+  </ItemGroup>
+
 </Project>

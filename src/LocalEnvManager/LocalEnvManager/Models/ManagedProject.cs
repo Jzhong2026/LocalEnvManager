@@ -34,6 +34,9 @@ namespace LocalEnvManager.Models
 		private string _logsDirectory = string.Empty;
 		private string _dependsOn = string.Empty;
 		private bool _hasRunningProcess;
+		private DateTime? _lastRunFinishedAt;
+		private DateTime? _lastRunStartedAt;
+		private bool _isResultStale;
 
 		public string Name
 		{
@@ -196,6 +199,8 @@ namespace LocalEnvManager.Models
 					NotifyOfPropertyChange(nameof(IsRunEnabled));
 					NotifyOfPropertyChange(nameof(IsCheckEnabled));
 					NotifyOfPropertyChange(nameof(IsStopEnabled));
+					NotifyOfPropertyChange(nameof(TimeColumnDisplay));
+					NotifyOfPropertyChange(nameof(TimeColumnTooltip));
 					// Do not clear HasRunningProcess here. Uvicorn reports Success once
 					// its port is bound, but its console process remains alive and must
 					// still expose Stop. The runner/Stop path owns clearing that flag.
@@ -219,6 +224,62 @@ namespace LocalEnvManager.Models
 			ExecutionState.Failed => "\u5931\u8d25",
 			_ => "\u672a\u8fd0\u884c"
 		};
+
+		// ===== Run timing (Execute tab "\u4e0a\u6b21\u6784\u5efa" column) =====
+		// LastRunFinishedAt is persisted so a restored result still shows when it
+		// happened. LastRunStartedAt is session-only and drives the live elapsed
+		// readout while a row is Running. IsResultStale marks results restored from
+		// disk (or left over from a previous batch) so the badge can render dimmed
+		// instead of masquerading as a fresh success.
+		public DateTime? LastRunFinishedAt
+		{
+			get => _lastRunFinishedAt;
+			set
+			{
+				if (Set(ref _lastRunFinishedAt, value))
+				{
+					NotifyOfPropertyChange(nameof(LastRunTimeDisplay));
+					NotifyOfPropertyChange(nameof(LastRunTimeTooltip));
+					NotifyOfPropertyChange(nameof(TimeColumnDisplay));
+					NotifyOfPropertyChange(nameof(TimeColumnTooltip));
+				}
+			}
+		}
+
+		public DateTime? LastRunStartedAt
+		{
+			get => _lastRunStartedAt;
+			set
+			{
+				if (Set(ref _lastRunStartedAt, value))
+				{
+					NotifyOfPropertyChange(nameof(TimeColumnDisplay));
+					NotifyOfPropertyChange(nameof(TimeColumnTooltip));
+				}
+			}
+		}
+
+		public bool IsResultStale
+		{
+			get => _isResultStale;
+			set => Set(ref _isResultStale, value);
+		}
+
+		public string LastRunTimeDisplay => RelativeTime.Format(LastRunFinishedAt, DateTime.Now);
+
+		public string LastRunTimeTooltip => RelativeTime.FormatFull(LastRunFinishedAt);
+
+		// While running, the time column shows elapsed duration; otherwise the
+		// relative finish time. A single bound property keeps the cell template simple.
+		public string TimeColumnDisplay =>
+			LastRunState == ExecutionState.Running && LastRunStartedAt is not null
+				? RelativeTime.FormatElapsed(DateTime.Now - LastRunStartedAt.Value)
+				: LastRunTimeDisplay;
+
+		public string TimeColumnTooltip =>
+			LastRunState == ExecutionState.Running && LastRunStartedAt is not null
+				? $"\u5f00\u59cb\u4e8e {RelativeTime.FormatFull(LastRunStartedAt)}"
+				: LastRunTimeTooltip;
 
 		// Whether the per-row "Run" button is currently enabled. Disabled while a run is in progress.
 		public bool IsRunEnabled => LastRunState != ExecutionState.Running;

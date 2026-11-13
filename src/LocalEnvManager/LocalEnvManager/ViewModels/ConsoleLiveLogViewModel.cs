@@ -47,6 +47,7 @@ namespace LocalEnvManager.ViewModels
             // Available flips to true the first time a ConsoleLineMessage arrives;
             // the parent's placeholder ("等待 stdout…") is shown in the meantime.
             _events.SubscribeOnUI(this);
+            _lines.CollectionChanged += (_, _) => NotifyOfPropertyChange(nameof(HasLines));
             // Start the flush timer at construction time. We do NOT gate this
             // on OnActivatedAsync because WPF's ContentControl does not call
             // IActivate.ActivateAsync on its DataContext — only Caliburn's
@@ -72,6 +73,7 @@ namespace LocalEnvManager.ViewModels
         public int ProjectId { get; }
         public LiveLogKind Kind => LiveLogKind.Console;
         public IEnumerable<string> Lines => _lines;
+        public bool HasLines => _lines.Count > 0;
         public string FileName => string.Empty;
 
         public bool Available
@@ -133,7 +135,8 @@ namespace LocalEnvManager.ViewModels
             // user sees a clean console.
             lock (_bufferGate) { _pending.Clear(); }
             _lines.Clear();
-            Available = false;
+            _lines.Add("── 更新开始 ──");
+            Available = true;
             Hint = "运行后将在此显示 stdout…";
             return Task.CompletedTask;
         }

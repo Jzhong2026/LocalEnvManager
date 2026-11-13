@@ -67,6 +67,12 @@ namespace LocalEnvManager.Services
         // from SourcePath / TargetPath / project name. Kept optional so the
         // existing per-project JSON files keep loading without a migration.
         public string LogsDirectory { get; set; } = string.Empty;
+        // Last run outcome, persisted so the Execute tab can show "上次的成功"
+        // after a restart instead of resetting every row to 未运行. Optional with
+        // defaults so older projects.json files load unchanged.
+        public ExecutionState LastRunState { get; set; } = ExecutionState.Idle;
+        public DateTime? LastRunFinishedAt { get; set; }
+        public string LastExecutionMessage { get; set; } = string.Empty;
     }
 
     public sealed class JsonProjectStore : IProjectStore

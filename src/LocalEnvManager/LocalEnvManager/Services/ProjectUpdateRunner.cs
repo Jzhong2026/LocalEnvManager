@@ -1883,13 +1883,12 @@ exit 0
             return true;
         }
 
-        // If a port is already in use, release it only when every listener belongs
-        // to the process tree this app launched for the same project. A listener
-        // owned by an unknown service is never killed automatically — the run is
-        // aborted with an actionable message instead.
+        // If a port is already in use, always force-kill listeners before starting uvicorn.
+        // Ownership checks were removed: stale launchers (other LEM sessions / users)
+        // used to abort startup as "unknown process"; restart must always reclaim the port.
         //
-        // Returns true when the port is free (or was freed); false when a foreign
-        // process still holds it.
+        // Returns true when the port is free (or was freed); false only when kill failed
+        // and the port is still bound after taskkill.
         private async Task<bool> FreePortIfOccupiedAsync(
             ManagedProject project,
             int port,
@@ -1913,82 +1912,53 @@ exit 0
                 return true;
             }
 
-            // Build the ownership set once from the launcher this app tracks for
-            // the project (launcher + all descendants, including the python worker).
-            var ownedPids = await Task.Run(() => CollectOwnedPids(project)).ConfigureAwait(false);
-            var foreign = pids.Where(pid => !ownedPids.Contains(pid)).ToList();
-            if (foreign.Count > 0)
-            {
-                foreach (var pid in foreign)
-                {
-                    var name = DescribeProcess(pid);
-                    Report(logProgress,
-                        $"[{project.Name}] ⚠️ 端口 {port} 被未知进程占用：{name} (PID {pid})。为避免误杀，本次启动已取消；请手动结束该进程或更换端口。");
-                }
-                return false;
-            }
-
             foreach (var pid in pids)
             {
                 try
                 {
                     using var occupant = Process.GetProcessById(pid);
                     var name = occupant.ProcessName;
-                    occupant.Kill(entireProcessTree: true);
+                    Report(logProgress,
+                        $"[{project.Name}] 端口 {port} 被占用：{name} (PID {pid})，强制结束");
                     try
                     {
+                        occupant.Kill(entireProcessTree: true);
                         await occupant.WaitForExitAsync().ConfigureAwait(false);
                     }
                     catch
                     {
-                        // Process may have raced — fine, we just wanted to give
-                        // the kernel a beat to release the handle.
+                        // Fall through to taskkill below.
                     }
-                    Report(logProgress,
-                        $"[{project.Name}] 端口 {port} 被本项目此前的进程占用，已结束 {name} (PID {pid})");
                 }
                 catch (ArgumentException)
                 {
-                    // Process already gone between discovery and kill — nothing to do.
+                    // Process already gone between discovery and kill.
                 }
                 catch (Exception ex)
                 {
                     Report(logProgress,
-                        $"[{project.Name}] 无法结束本项目占用端口 {port} 的进程 PID {pid}：{ex.Message}");
+                        $"[{project.Name}] Process.Kill 失败 PID {pid}：{ex.Message}，改用 taskkill");
                 }
+
+                await TryTaskKillAsync(pid, project.Name, logProgress).ConfigureAwait(false);
             }
 
-            // Wait briefly for the OS to release the socket; killing the python
-            // child does not always free a LISTENING socket inherited by a wrapper.
             if (!await WaitForPortFreeAsync(port, seconds: 3).ConfigureAwait(false))
             {
-                Report(logProgress, $"[{project.Name}] ✓ 端口 {port} 已释放");
+                Report(logProgress, $"[{project.Name}] ✅ 端口 {port} 已释放");
                 return true;
             }
 
-            // Escalate with taskkill, but only for PIDs that are still proven to be
-            // part of this project's tracked process tree.
             var leftover = await FindPidsListeningOnPortAsync(port).ConfigureAwait(false);
             leftover.Remove(currentPid);
             if (leftover.Count == 0)
             {
-                Report(logProgress, $"[{project.Name}] ✓ 端口 {port} 已释放");
+                Report(logProgress, $"[{project.Name}] ✅ 端口 {port} 已释放");
                 return true;
             }
 
-            var leftoverForeign = leftover.Where(pid => !ownedPids.Contains(pid)).ToList();
-            if (leftoverForeign.Count > 0)
-            {
-                foreach (var pid in leftoverForeign)
-                {
-                    Report(logProgress,
-                        $"[{project.Name}] ⚠️ 端口 {port} 仍被未知进程占用：{DescribeProcess(pid)} (PID {pid})。已取消启动。");
-                }
-                return false;
-            }
-
             Report(logProgress,
-                $"[{project.Name}] → 端口 {port} 仍被本项目残留进程占用，使用 taskkill /F /T 结束");
+                $"[{project.Name}] 端口 {port} 仍被占用，再次 taskkill /F /T");
             foreach (var pid in leftover)
             {
                 await TryTaskKillAsync(pid, project.Name, logProgress).ConfigureAwait(false);
@@ -2000,7 +1970,7 @@ exit 0
                 return false;
             }
 
-            Report(logProgress, $"[{project.Name}] ✓ 端口 {port} 已释放");
+            Report(logProgress, $"[{project.Name}] ✅ 端口 {port} 已释放");
             return true;
         }
 
@@ -2279,8 +2249,41 @@ exit 0
                 return new ProjectExecutionResult(false, $"Failed to start {projectName}: {preview}");
 
             using var ctr = RegisterKillOnCancel(process, cancellationToken);
-            var standardOutputTask = process.StandardOutput.ReadToEndAsync();
-            var standardErrorTask = process.StandardError.ReadToEndAsync();
+
+            // Stream output line-by-line instead of waiting for process exit. This
+            // is what makes a long `dotnet build` / PowerShell script visible in the
+            // MCP-triggered UI while it is still running.
+            var stdout = new StringBuilder();
+            var stderr = new StringBuilder();
+            var stdoutDone = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var stderrDone = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            process.OutputDataReceived += (_, e) =>
+            {
+                if (e.Data is null)
+                {
+                    stdoutDone.TrySetResult(true);
+                    return;
+                }
+
+                lock (stdout) stdout.AppendLine(e.Data);
+                Report(logProgress, $"[{projectName}] {e.Data}");
+            };
+            process.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data is null)
+                {
+                    stderrDone.TrySetResult(true);
+                    return;
+                }
+
+                lock (stderr) stderr.AppendLine(e.Data);
+                Report(logProgress, $"[{projectName}|stderr] {e.Data}");
+            };
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
 
             try
             {
@@ -2293,15 +2296,22 @@ exit 0
                     $"{projectName}: 已停止（用户取消）。");
             }
 
-            var standardOutput = await standardOutputTask;
-            var standardError = await standardErrorTask;
+            // WaitForExitAsync can complete before the async output pumps deliver
+            // their final lines; give them a bounded moment to drain.
+            try
+            {
+                await Task.WhenAll(stdoutDone.Task, stderrDone.Task)
+                    .WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch
+            {
+                // Best effort; use whatever has been captured.
+            }
 
-            // Forward tool output lines into the per-project log so users can see
-            // what `dotnet publish` actually printed (warnings, restore output, etc.).
-            if (!string.IsNullOrWhiteSpace(standardOutput))
-                ReportJoined(logProgress, projectName, standardOutput);
-            if (!string.IsNullOrWhiteSpace(standardError))
-                ReportJoined(logProgress, projectName, standardError, prefix: "stderr");
+            string standardOutput;
+            string standardError;
+            lock (stdout) standardOutput = stdout.ToString();
+            lock (stderr) standardError = stderr.ToString();
 
             var combinedOutput = string.Join(Environment.NewLine,
                 new[] { standardOutput, standardError }.Where(value => !string.IsNullOrWhiteSpace(value)));
@@ -2338,18 +2348,5 @@ exit 0
             progress.Report(line.Trim());
         }
 
-        // Split multi-line tool output into individual rows so each appears as its own
-        // log line on the Log tab.
-        private static void ReportJoined(IProgress<string>? progress, string projectName, string text, string? prefix = null)
-        {
-            if (progress is null || string.IsNullOrWhiteSpace(text))
-                return;
-
-            var header = string.IsNullOrEmpty(prefix) ? $"[{projectName}]" : $"[{projectName}|{prefix}]";
-            foreach (var line in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
-            {
-                progress.Report($"{header} {line.TrimEnd()}");
-            }
-        }
     }
 }

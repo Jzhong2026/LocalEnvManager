@@ -40,6 +40,7 @@ namespace LocalEnvManager.ViewModels
             _watcher = watcher;
             _projectResolver = projectResolver;
             _events.SubscribeOnUI(this);
+            _lines.CollectionChanged += (_, _) => NotifyOfPropertyChange(nameof(HasLines));
         }
 
         public int ProjectId
@@ -54,6 +55,7 @@ namespace LocalEnvManager.ViewModels
         }
         public LiveLogKind Kind => LiveLogKind.LogFile;
         public IEnumerable<string> Lines => _lines;
+        public bool HasLines => _lines.Count > 0;
         private string _fileName = string.Empty;
         public string FileName
         {

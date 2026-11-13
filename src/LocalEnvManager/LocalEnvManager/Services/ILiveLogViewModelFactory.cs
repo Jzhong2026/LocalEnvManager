@@ -40,11 +40,12 @@ namespace LocalEnvManager.Services
             {
                 return new LogFileLiveLogViewModel(projectId, _events, new ProjectLogsWatcher(), projectResolver);
             }
-            if (mode == DeploymentMode.Uvicorn)
-            {
-                return new ConsoleLiveLogViewModel(projectId, _events);
-            }
-            return new LogFileLiveLogViewModel(projectId, _events, new ProjectLogsWatcher(), projectResolver);
+
+            // No log directory: show the process output for every mode, not just
+            // uvicorn. Otherwise a dotnet/PowerShell run looks silent in the right
+            // pane even though the runner is streaming lines.
+            _ = mode;
+            return new ConsoleLiveLogViewModel(projectId, _events);
         }
 
         // True when ResolveLogsDirectory finds an existing folder for this

@@ -169,7 +169,10 @@ namespace LocalEnvManager.Services
                 or nameof(ManagedProject.IisAppPoolName)
                 or nameof(ManagedProject.PullLatest)
                 or nameof(ManagedProject.DependsOn)
-                or nameof(ManagedProject.LogsDirectory))
+                or nameof(ManagedProject.LogsDirectory)
+                or nameof(ManagedProject.LastRunState)
+                or nameof(ManagedProject.LastRunFinishedAt)
+                or nameof(ManagedProject.LastExecutionMessage))
             {
                 RequestSave();
             }
@@ -211,7 +214,12 @@ namespace LocalEnvManager.Services
                         IisAppPoolName = p.IisAppPoolName,
                         PullLatest = p.PullLatest,
                         DependsOn = p.DependsOn,
-                        LogsDirectory = p.LogsDirectory
+                        LogsDirectory = p.LogsDirectory,
+                        // Never persist Running: a crash mid-run must not resurrect
+                        // as a phantom "更新中" on next launch.
+                        LastRunState = p.LastRunState == ExecutionState.Running ? ExecutionState.Idle : p.LastRunState,
+                        LastRunFinishedAt = p.LastRunFinishedAt,
+                        LastExecutionMessage = p.LastExecutionMessage
                     }).ToList()
                 }).ToList()
             };
@@ -288,6 +296,12 @@ namespace LocalEnvManager.Services
 
         private static ManagedProject CreateProject(ProjectRecord record)
         {
+            // A persisted Running state means the app closed mid-run; surface it as
+            // Idle rather than a phantom "更新中". Any terminal result restored from
+            // disk is stale by definition — it belongs to a previous session.
+            var state = record.LastRunState == ExecutionState.Running
+                ? ExecutionState.Idle
+                : record.LastRunState;
             return new ManagedProject
             {
                 Name = record.Name,
@@ -299,7 +313,13 @@ namespace LocalEnvManager.Services
                 IisAppPoolName = record.IisAppPoolName ?? string.Empty,
                 PullLatest = record.PullLatest,
                 DependsOn = record.DependsOn ?? string.Empty,
-                LogsDirectory = record.LogsDirectory ?? string.Empty
+                LogsDirectory = record.LogsDirectory ?? string.Empty,
+                LastRunState = state,
+                LastRunFinishedAt = record.LastRunFinishedAt,
+                LastExecutionMessage = string.IsNullOrEmpty(record.LastExecutionMessage)
+                    ? "Not started"
+                    : record.LastExecutionMessage,
+                IsResultStale = state != ExecutionState.Idle
             };
         }
 

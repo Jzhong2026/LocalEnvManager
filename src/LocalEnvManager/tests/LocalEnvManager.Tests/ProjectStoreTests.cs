@@ -94,6 +94,41 @@ public sealed class ProjectStoreTests : IDisposable
         Assert.Equal(DeploymentMode.DotNetPublish, project.DeploymentMode);
     }
 
+    [Fact]
+    public void SaveThenLoadRoundTripsRunState()
+    {
+        var store = new JsonProjectStore(_path);
+        var finished = new DateTime(2026, 11, 13, 10, 0, 0);
+        var snapshot = new ProjectStoreSnapshot
+        {
+            Categories =
+            [
+                new CategoryRecord
+                {
+                    Name = "C",
+                    Projects =
+                    [
+                        new ProjectRecord
+                        {
+                            Name = "P",
+                            LastRunState = ExecutionState.Success,
+                            LastRunFinishedAt = finished,
+                            LastExecutionMessage = "ok"
+                        }
+                    ]
+                }
+            ]
+        };
+
+        store.Save(snapshot);
+        var loaded = store.Load();
+
+        var project = Assert.Single(Assert.Single(loaded.Snapshot.Categories).Projects);
+        Assert.Equal(ExecutionState.Success, project.LastRunState);
+        Assert.Equal(finished, project.LastRunFinishedAt);
+        Assert.Equal("ok", project.LastExecutionMessage);
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(_directory, recursive: true); } catch { }

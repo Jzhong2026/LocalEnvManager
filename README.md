@@ -40,6 +40,25 @@ dotnet test src/LocalEnvManager/tests/LocalEnvManager.Tests/LocalEnvManager.Test
 dotnet publish src/LocalEnvManager/LocalEnvManager/LocalEnvManager.csproj -c Release -o publish-tmp
 ```
 
+## MCP（Grok Build / 外部 Agent）
+
+应用启动后会在 `127.0.0.1` 上开启随机端口命令端点（随机 Bearer token，端点信息写入
+`%LOCALAPPDATA%\LocalEnvManager\mcp-endpoint.json`）；配套的 `LocalEnvManager.Mcp.exe`
+是一个 stdio MCP server，可被 Grok Build 等 MCP 客户端拉起，用于查询项目、读取日志、
+运行/停止已配置的项目。它只监听回环地址，不接受任意命令。
+
+```powershell
+# 1. 构建 MCP bridge（发布目录见 docs/mcp.md）
+dotnet publish src/LocalEnvManager/LocalEnvManager.Mcp/LocalEnvManager.Mcp.csproj `
+  -c Release -r win-x64 --self-contained false -o "<应用目录>\mcp"
+
+# 2. 注册到 Grok Build（先启动 LocalEnvManager.exe）
+grok mcp add local-env-manager -- "<应用目录>\mcp\LocalEnvManager.Mcp.exe"
+```
+
+工具：`list_projects`、`get_project_status`、`get_project_logs`、`run_project`、`stop_project`。
+完整配置、安全边界和示例提示词见 [docs/mcp.md](src/LocalEnvManager/docs/mcp.md)。
+
 ## 数据与日志位置
 
 | 内容 | 路径 |
@@ -69,17 +88,19 @@ ShellView (自定义标题栏 + 3 个页面)
         ↑
    IProjectCatalog（单例数据源，防抖 + 原子持久化）
    IProjectUpdateRunner / ProjectLogsWatcher / GitBranchService / RuntimeLogger
+   McpCommandServer（仅回环 TCP + token，供 LocalEnvManager.Mcp stdio bridge 调用）
 ```
 
 - MVVM：Caliburn.Micro；页面之间通过 `IEventAggregator` 消息通信，不直接引用。
 - 执行结果使用类型化 `ProjectExecutionOutcome`（Success / Failed / Cancelled），取消不再依赖中文消息匹配。
 - 日志 tail 使用跨块 UTF-8 解码与半行缓冲，避免多字节字符被截断或半行当成完整行。
-- 测试：`tests/LocalEnvManager.Tests`（配置加载/备份、UTF-8 行组装、枚举持久化、结果类型）；CI 见 `.github/workflows/build.yml`。
+- MCP：`LocalEnvManager.Mcp` 通过 stdio 暴露项目级工具，`LocalEnvManager.Mcp.Contracts` 共享管道协议。
+- 测试：`tests/LocalEnvManager.Tests`（配置加载/备份、UTF-8 行组装、枚举持久化、结果类型、MCP 管道）；CI 见 `.github/workflows/build.yml`。
 
 ## 已知限制
 
 - 运行状态与界面日志只保存在内存，重启后清空；磁盘运行日志保留完整输出。
 - 没有部署历史/版本快照/回滚（覆盖目录不是备份）。
-- dotnet / PowerShell 的输出在进程退出后一次性显示；uvicorn 为逐行实时。
+- dotnet / PowerShell / uvicorn 的输出均逐行回传；MCP 触发的运行会自动切到“执行更新”并选中对应项目。
 - 项目之间并行执行，未提供并发上限。
 - 应用以管理员身份常驻运行；配置文件位于当前用户可写目录，请勿在不信任的账户环境使用。

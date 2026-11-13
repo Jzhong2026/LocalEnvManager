@@ -1,6 +1,7 @@
 using Caliburn.Micro;
 using LocalEnvManager.Messages;
 using LocalEnvManager.Services;
+using LocalEnvManager.Services.Mcp;
 
 namespace LocalEnvManager.ViewModels
 {
@@ -17,18 +18,21 @@ namespace LocalEnvManager.ViewModels
         private readonly IRuntimeLogger _logger;
         private readonly IEventAggregator _events;
         private readonly IApplicationWindowService _window;
+        private readonly McpCommandServer _mcp;
 
         public ShellViewModel(
             ContentHostViewModel host,
             IProjectCatalog catalog,
             IRuntimeLogger logger,
             IEventAggregator events,
-            IApplicationWindowService window)
+            IApplicationWindowService window,
+            McpCommandServer mcp)
         {
             _catalog = catalog;
             _logger = logger;
             _events = events;
             _window = window;
+            _mcp = mcp;
             Host = host;
 
             // First on-disk log entry: surface the log file path so users know where to look
@@ -42,6 +46,9 @@ namespace LocalEnvManager.ViewModels
 
         public void OnWindowClosing()
         {
+            // Stop accepting MCP commands before the process exits.
+            _mcp.Stop();
+
             // Force any pending debounced project save to flush so the user's
             // last edit isn't lost when the window closes.
             _catalog.FlushPendingSave();

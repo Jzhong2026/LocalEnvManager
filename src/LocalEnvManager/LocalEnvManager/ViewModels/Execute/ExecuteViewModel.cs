@@ -4,7 +4,9 @@ using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using Caliburn.Micro;
+using LocalEnvManager.Mcp.Contracts;
 using LocalEnvManager.Messages;
 using LocalEnvManager.Models;
 using LocalEnvManager.Services;
@@ -36,7 +38,9 @@ namespace LocalEnvManager.ViewModels
         IHandle<ProjectsChangedMessage>,
         IHandle<ProjectSelectedDetailMessage>,
         IHandle<ConsoleLineMessage>,
-        IHandle<ProjectRunStartedMessage>
+        IHandle<ProjectRunStartedMessage>,
+        IHandle<RunProjectRequestMessage>,
+        IHandle<StopProjectRequestMessage>
     {
         private readonly IProjectCatalog _catalog;
         private readonly IProjectUpdateRunner _runner;
@@ -44,7 +48,24 @@ namespace LocalEnvManager.ViewModels
         private readonly IRuntimeLogger _logger;
         private readonly IEventAggregator _events;
         private readonly ILiveLogViewModelFactory _liveLogFactory;
+        private readonly IUiSettingsStore _uiSettings;
         private readonly Dictionary<int, List<ConsoleLineMessage>> _consoleBacklog = new();
+        private readonly System.Windows.Threading.DispatcherTimer _clockTimer;
+
+        private GridLength _modeColumnWidth = new(80);
+        private GridLength _branchColumnWidth = new(260);
+        private GridLength _pullColumnWidth = new(56);
+        private GridLength _stateColumnWidth = new(80);
+        private GridLength _timeColumnWidth = new(110);
+
+        private static readonly Dictionary<string, double> DefaultColumnWidths = new()
+        {
+            ["mode"] = 80,
+            ["branch"] = 260,
+            ["pull"] = 56,
+            ["state"] = 80,
+            ["time"] = 110
+        };
 
         private ManagedProject? _selectedProject;
         private bool _isRefreshingBranches;
@@ -59,7 +80,8 @@ namespace LocalEnvManager.ViewModels
             IGitBranchService git,
             IRuntimeLogger logger,
             IEventAggregator events,
-            ILiveLogViewModelFactory liveLogFactory)
+            ILiveLogViewModelFactory liveLogFactory,
+            IUiSettingsStore uiSettings)
         {
             _catalog = catalog;
             _runner = runner;
@@ -67,6 +89,23 @@ namespace LocalEnvManager.ViewModels
             _logger = logger;
             _events = events;
             _liveLogFactory = liveLogFactory;
+            _uiSettings = uiSettings;
+
+            var savedWidths = _uiSettings.Load().ExecuteColumnWidths;
+            if (savedWidths.TryGetValue("mode", out var mode)) _modeColumnWidth = new GridLength(ClampWidth(mode));
+            if (savedWidths.TryGetValue("branch", out var branch)) _branchColumnWidth = new GridLength(ClampWidth(branch));
+            if (savedWidths.TryGetValue("pull", out var pull)) _pullColumnWidth = new GridLength(ClampWidth(pull));
+            if (savedWidths.TryGetValue("state", out var state)) _stateColumnWidth = new GridLength(ClampWidth(state));
+            if (savedWidths.TryGetValue("time", out var time)) _timeColumnWidth = new GridLength(ClampWidth(time));
+
+            // Drives the live elapsed readout on running rows and keeps relative
+            // finish times ("3 分钟前") from going stale while the tab is open.
+            _clockTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            _clockTimer.Tick += (_, _) => RefreshTimeDisplays();
+            _clockTimer.Start();
 
             LiveLogPanes = new Dictionary<int, IProjectLiveLogPane>();
             _events.SubscribeOnUI(this);
@@ -160,6 +199,65 @@ namespace LocalEnvManager.ViewModels
         /// <summary>GridLength string for the right detail column.</summary>
         public string RightColumnWidth => IsDetailMaximized ? "*" : "4*";
 
+        // ===== Resizable table columns (Execute tab) =====
+        // Header and every row bind to these same GridLength values so a drag in
+        // the header resizes the whole column live. The drag math/clamp lives in
+        // ColumnResizeBehavior; the VM only owns the values and their persistence.
+        public GridLength ModeColumnWidth { get => _modeColumnWidth; set => Set(ref _modeColumnWidth, value); }
+        public GridLength BranchColumnWidth { get => _branchColumnWidth; set => Set(ref _branchColumnWidth, value); }
+        public GridLength PullColumnWidth { get => _pullColumnWidth; set => Set(ref _pullColumnWidth, value); }
+        public GridLength StateColumnWidth { get => _stateColumnWidth; set => Set(ref _stateColumnWidth, value); }
+        public GridLength TimeColumnWidth { get => _timeColumnWidth; set => Set(ref _timeColumnWidth, value); }
+
+        private static double ClampWidth(double width) => Math.Clamp(width, 40, 800);
+
+        /// <summary>Double-click on a column grip restores that column's default width.</summary>
+        public void ResetColumn(string key)
+        {
+            if (!DefaultColumnWidths.TryGetValue(key, out var def)) return;
+            switch (key)
+            {
+                case "mode": ModeColumnWidth = new GridLength(def); break;
+                case "branch": BranchColumnWidth = new GridLength(def); break;
+                case "pull": PullColumnWidth = new GridLength(def); break;
+                case "state": StateColumnWidth = new GridLength(def); break;
+                case "time": TimeColumnWidth = new GridLength(def); break;
+            }
+            SaveColumnWidths();
+        }
+
+        /// <summary>Invoked by the grip's DragCompleted (Caliburn Message.Attach).</summary>
+        public void SaveColumnWidths()
+        {
+            try
+            {
+                _uiSettings.Save(new UiSettings
+                {
+                    ExecuteColumnWidths = new Dictionary<string, double>
+                    {
+                        ["mode"] = _modeColumnWidth.Value,
+                        ["branch"] = _branchColumnWidth.Value,
+                        ["pull"] = _pullColumnWidth.Value,
+                        ["state"] = _stateColumnWidth.Value,
+                        ["time"] = _timeColumnWidth.Value
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.Append(LogEntry.LogLevel.Warn, $"保存列宽失败：{ex.Message}");
+            }
+        }
+
+        private void RefreshTimeDisplays()
+        {
+            foreach (var project in _catalog.Projects)
+            {
+                project.NotifyOfPropertyChange(nameof(ManagedProject.TimeColumnDisplay));
+                project.NotifyOfPropertyChange(nameof(ManagedProject.TimeColumnTooltip));
+            }
+        }
+
         public int SelectedCount => _catalog.Projects.Count(p => p.IsChecked);
 
         public bool CanRunSelected => !IsRunning && SelectedCount > 0;
@@ -176,7 +274,8 @@ namespace LocalEnvManager.ViewModels
                 var running = _catalog.Projects.Count(p => p.LastRunState == ExecutionState.Running);
                 var success = _catalog.Projects.Count(p => p.LastRunState == ExecutionState.Success);
                 var failed = _catalog.Projects.Count(p => p.LastRunState == ExecutionState.Failed);
-                return $"共 {total} 项 · 更新中 {running} · 成功 {success} · 失败 {failed}";
+                var idle = _catalog.Projects.Count(p => p.LastRunState == ExecutionState.Idle);
+                return $"共 {total} 项 · 更新中 {running} · 成功 {success} · 失败 {failed} · 未运行 {idle}";
             }
         }
 
@@ -328,7 +427,7 @@ namespace LocalEnvManager.ViewModels
             _ = StopProjectCoreAsync(project);
         }
 
-        private async Task StopProjectCoreAsync(ManagedProject project)
+        private async Task<bool> StopProjectCoreAsync(ManagedProject project)
         {
             // For uvicorn the runner keeps a Process reference in s_uvicornProcesses
             // until the user (or relaunch) kills it, so we must allow Stop after
@@ -338,7 +437,7 @@ namespace LocalEnvManager.ViewModels
             // For PowerShell we only allow Stop while Running (the script exits
             // on its own on completion, so a Success/Failed Stop would be a no-op).
             var allowWhenNotRunning = project.DeploymentMode == DeploymentMode.Uvicorn;
-            if (!allowWhenNotRunning && project.LastRunState != ExecutionState.Running) return;
+            if (!allowWhenNotRunning && project.LastRunState != ExecutionState.Running) return false;
 
             // Optimistic UI: hide the Stop button the instant the kill command is
             // dispatched so a frantic user can't double-click and re-signal the
@@ -378,11 +477,14 @@ namespace LocalEnvManager.ViewModels
                     _logger.Append(LogEntry.LogLevel.Warn,
                         $"[{project.Name}] 未找到运行中的 uvicorn 进程,可能已退出。");
                 }
+
+                return stopped;
             }
             catch (Exception ex)
             {
                 _logger.Append(LogEntry.LogLevel.Error,
                     $"[{project.Name}] 停止失败：{ex.Message}");
+                return false;
             }
         }
 
@@ -416,12 +518,17 @@ namespace LocalEnvManager.ViewModels
             var targets = _catalog.Projects.Where(p => p.IsChecked).ToList();
             if (targets.Count == 0) return;
 
+            MarkStaleExcept(targets);
             IsRunning = true;
             _runCts?.Dispose();
             _runCts = new CancellationTokenSource();
             try
             {
                 await RunProjectsInDependencyOrderAsync(targets, _runCts.Token);
+                // Surface the first failure immediately so the user lands on the
+                // error log instead of hunting for the red row.
+                var firstFailed = targets.FirstOrDefault(p => p.LastRunState == ExecutionState.Failed);
+                if (firstFailed is not null) SelectedProject = firstFailed;
             }
             catch (OperationCanceledException) { /* expected on cancel */ }
             finally
@@ -429,6 +536,19 @@ namespace LocalEnvManager.ViewModels
                 IsRunning = false;
                 _runCts?.Dispose();
                 _runCts = null;
+            }
+        }
+
+        // Results left over from a previous batch (or restored from disk) must not
+        // read as fresh once a new run starts. Dim every non-target terminal result.
+        private void MarkStaleExcept(IEnumerable<ManagedProject> targets)
+        {
+            var set = new HashSet<ManagedProject>(targets);
+            foreach (var project in _catalog.Projects)
+            {
+                if (set.Contains(project)) continue;
+                if (project.LastRunState is ExecutionState.Success or ExecutionState.Failed)
+                    project.IsResultStale = true;
             }
         }
 
@@ -486,6 +606,8 @@ namespace LocalEnvManager.ViewModels
                 project.LastExecutionMessage = reason;
                 project.LatestLogSnippet = reason;
                 project.HasLatestError = true;
+                project.LastRunFinishedAt = DateTime.Now;
+                project.IsResultStale = false;
                 completed.Add(project);
             }
 
@@ -501,6 +623,8 @@ namespace LocalEnvManager.ViewModels
                         project.LastExecutionMessage = "已取消（未执行）。";
                         project.LatestLogSnippet = "已取消";
                         project.HasLatestError = false;
+                        project.LastRunFinishedAt = DateTime.Now;
+                        project.IsResultStale = false;
                     }
                     try { await Task.WhenAll(running.Keys); } catch { }
                     return;
@@ -522,6 +646,8 @@ namespace LocalEnvManager.ViewModels
                         project.LastExecutionMessage = $"依赖 {failedDep.Name} 未成功，已跳过。";
                         project.LatestLogSnippet = project.LastExecutionMessage;
                         project.HasLatestError = true;
+                        project.LastRunFinishedAt = DateTime.Now;
+                        project.IsResultStale = false;
                         completed.Add(project);
                         continue;
                     }
@@ -548,6 +674,8 @@ namespace LocalEnvManager.ViewModels
                     project.LastExecutionMessage = "依赖关系存在循环，未执行更新。";
                     project.LatestLogSnippet = project.LastExecutionMessage;
                     project.HasLatestError = true;
+                    project.LastRunFinishedAt = DateTime.Now;
+                    project.IsResultStale = false;
                 }
                 return;
             }
@@ -574,6 +702,8 @@ namespace LocalEnvManager.ViewModels
             project.LastExecutionMessage = string.Empty;
             project.LatestLogSnippet = string.Empty;
             project.HasLatestError = false;
+            project.LastRunStartedAt = DateTime.Now;
+            project.IsResultStale = false;
             // HasRunningProcess drives the per-row Stop button visibility. For a
             // uvicorn service, it remains true after the update itself succeeds:
             // the launcher is still a live console process until Stop is clicked
@@ -630,6 +760,7 @@ namespace LocalEnvManager.ViewModels
                         project.HasLatestError = true;
                         break;
                 }
+                project.LastRunFinishedAt = DateTime.Now;
                 _events.PublishOnCurrentThread(new ProjectRunFinishedMessage(
                     projectId, result.Success, result.Message,
                     result.EffectiveOutcome == ProjectExecutionOutcome.Cancelled));
@@ -640,6 +771,7 @@ namespace LocalEnvManager.ViewModels
                 project.LastExecutionMessage = "已停止（用户取消）。";
                 project.LatestLogSnippet = "已停止";
                 project.HasLatestError = false;
+                project.LastRunFinishedAt = DateTime.Now;
                 _events.PublishOnCurrentThread(new ProjectRunFinishedMessage(
                     projectId, false, project.LastExecutionMessage, cancelled: true));
             }
@@ -649,6 +781,7 @@ namespace LocalEnvManager.ViewModels
                 project.LastExecutionMessage = ex.Message;
                 project.LatestLogSnippet = "执行异常";
                 project.HasLatestError = true;
+                project.LastRunFinishedAt = DateTime.Now;
                 _events.PublishOnCurrentThread(new ProjectRunFinishedMessage(projectId, false, ex.Message));
             }
         }
@@ -770,6 +903,160 @@ namespace LocalEnvManager.ViewModels
             return Task.CompletedTask;
         }
 
+        // ===== MCP requests (named-pipe bridge) =====
+
+        public async Task HandleAsync(RunProjectRequestMessage message, CancellationToken cancellationToken)
+        {
+            var started = DateTimeOffset.UtcNow;
+            var project = _catalog.FindById(message.ProjectId);
+            if (project is null)
+            {
+                _events.PublishOnCurrentThread(new RunProjectResultMessage(
+                    message.CorrelationId,
+                    new RunProjectResult(message.ProjectId, string.Empty, "Unknown",
+                        Success: false, Cancelled: false,
+                        Message: "Project not found.", DurationMs: 0)));
+                return;
+            }
+
+            if (IsRunning)
+            {
+                // A rejected request never ran: report failure explicitly instead of
+                // deriving Success from the target's previous (possibly successful) run,
+                // which would let a caller treat a skipped deploy as a success.
+                _events.PublishOnCurrentThread(new RunProjectResultMessage(
+                    message.CorrelationId,
+                    new RunProjectResult(
+                        message.ProjectId, project.Name, project.LastRunState.ToString(),
+                        Success: false, Cancelled: false,
+                        Message: "Another update is already running in LocalEnvManager.",
+                        DurationMs: (long)(DateTimeOffset.UtcNow - started).TotalMilliseconds)));
+                return;
+            }
+
+            SelectedProject = project;
+            // Bring the run to the foreground so an MCP/Grok-triggered deploy is
+            // observable: status row, selected project and live log pane.
+            _events.PublishOnCurrentThread(new ActivatePageMessage(1));
+            MarkStaleExcept(message.IncludeDependencies
+                ? CollectWithDependencies(project)
+                : new[] { project });
+            IsRunning = true;
+            _runCts?.Dispose();
+            _runCts = new CancellationTokenSource();
+
+            try
+            {
+                if (message.IncludeDependencies)
+                {
+                    await RunProjectsInDependencyOrderAsync(
+                        CollectWithDependencies(project), _runCts.Token);
+                }
+                else
+                {
+                    await RunProjectPipelineAsync(
+                        project,
+                        new ProjectExecutionOptions(project.PullLatest),
+                        _runCts.Token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // The pipeline maps cancellation to Idle; nothing else to do here.
+            }
+            catch (Exception ex)
+            {
+                _logger.Append(LogEntry.LogLevel.Error,
+                    $"[{project.Name}] MCP 运行失败：{ex.Message}");
+                project.LastRunState = ExecutionState.Failed;
+                project.LastExecutionMessage = ex.Message;
+            }
+            finally
+            {
+                IsRunning = false;
+                _runCts?.Dispose();
+                _runCts = null;
+            }
+
+            _events.PublishOnCurrentThread(new RunProjectResultMessage(
+                message.CorrelationId,
+                BuildRunProjectResult(project, started, null)));
+        }
+
+        public async Task HandleAsync(StopProjectRequestMessage message, CancellationToken cancellationToken)
+        {
+            var project = _catalog.FindById(message.ProjectId);
+            if (project is null)
+            {
+                _events.PublishOnCurrentThread(new StopProjectResultMessage(
+                    message.CorrelationId,
+                    new StopProjectResult(message.ProjectId, string.Empty, false, "Project not found.")));
+                return;
+            }
+
+            var stopped = await StopProjectCoreAsync(project);
+            _events.PublishOnCurrentThread(new StopProjectResultMessage(
+                message.CorrelationId,
+                new StopProjectResult(
+                    message.ProjectId,
+                    project.Name,
+                    stopped,
+                    stopped
+                        ? $"Stop requested for {project.Name}."
+                        : $"No running process to stop for {project.Name}.")));
+        }
+
+        private List<ManagedProject> CollectWithDependencies(ManagedProject root)
+        {
+            var ordered = new List<ManagedProject>();
+            var seen = new HashSet<ManagedProject>();
+
+            void Visit(ManagedProject project)
+            {
+                if (!seen.Add(project)) return;
+
+                foreach (var name in GetDependencyNames(project))
+                {
+                    var dependency = _catalog.Projects.FirstOrDefault(candidate =>
+                        string.Equals(candidate.Name?.Trim(), name,
+                            StringComparison.OrdinalIgnoreCase));
+                    if (dependency is null)
+                    {
+                        _logger.Append(LogEntry.LogLevel.Warn,
+                            $"[{project.Name}] 依赖项目 \"{name}\" 不存在。");
+                        continue;
+                    }
+                    Visit(dependency);
+                }
+
+                ordered.Add(project);
+            }
+
+            Visit(root);
+            return ordered;
+        }
+
+        private RunProjectResult BuildRunProjectResult(
+            ManagedProject project,
+            DateTimeOffset started,
+            string? overrideMessage)
+        {
+            var state = project.LastRunState;
+            var message = overrideMessage ?? project.LastExecutionMessage ?? string.Empty;
+            var cancelled = state == ExecutionState.Idle
+                && (message.Contains("取消", StringComparison.Ordinal)
+                    || message.Contains("停止", StringComparison.Ordinal));
+
+            return new RunProjectResult(
+                _catalog.GetProjectId(project),
+                project.Name,
+                state.ToString(),
+                Success: state == ExecutionState.Success,
+                Cancelled: cancelled,
+                Message: message,
+                DurationMs: (long)(DateTimeOffset.UtcNow - started).TotalMilliseconds);
+        }
+
         private void OnExecutionProjectChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(ManagedProject.IsChecked))
@@ -817,6 +1104,7 @@ namespace LocalEnvManager.ViewModels
         {
             if (close)
             {
+                _clockTimer.Stop();
                 foreach (var pane in LiveLogPanes.Values)
                 {
                     pane.ViewModel?.Dispose();

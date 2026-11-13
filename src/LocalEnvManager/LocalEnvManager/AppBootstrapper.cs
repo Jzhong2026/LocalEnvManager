@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using Caliburn.Micro;
 using LocalEnvManager.Services;
+using LocalEnvManager.Services.Mcp;
 using LocalEnvManager.ViewModels;
 
 namespace LocalEnvManager
@@ -28,8 +29,10 @@ namespace LocalEnvManager
             _container.Singleton<IProjectUpdateRunner, ProjectUpdateRunner>();
             _container.Singleton<IGitBranchService, GitBranchService>();
             _container.Singleton<IProjectStore, JsonProjectStore>();
+            _container.Singleton<IUiSettingsStore, JsonUiSettingsStore>();
             _container.Singleton<IRuntimeLogger, RuntimeLogger>();
             _container.Singleton<ILiveLogViewModelFactory, LiveLogViewModelFactory>();
+            _container.Singleton<McpCommandServer>();
 
             // Project catalog is the single source of truth for project data shared
             // across all three page view-models. Constructed eagerly at startup so
@@ -62,6 +65,14 @@ namespace LocalEnvManager
         protected override async void OnStartup(object sender, StartupEventArgs e)
         {
             await DisplayRootViewForAsync<ShellViewModel>();
+
+            // Start after the root window exists so the UI thread / dispatcher is
+            // ready for catalog reads and run requests. The pipe path is not a
+            // network port and only accepts the current Windows user.
+            if (GetInstance(typeof(McpCommandServer), null!) is McpCommandServer mcp)
+            {
+                mcp.Start();
+            }
         }
     }
 }

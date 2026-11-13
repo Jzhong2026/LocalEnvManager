@@ -59,15 +59,17 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
-                        <!-- Table header -->
+                        <!-- Table header. Resizable columns bind to VM GridLength values
+                             shared with every row; the Thumb grips resize them live. -->
                         <Grid Grid.Row="0" Margin="14,12,14,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="80" />
-                                <ColumnDefinition Width="220" />
-                                <ColumnDefinition Width="56" />
-                                <ColumnDefinition Width="80" />
+                                <ColumnDefinition Width="*" MinWidth="160" x:Name="ProjectColumn" />
+                                <ColumnDefinition Width="{Binding ModeColumnWidth}" />
+                                <ColumnDefinition Width="{Binding BranchColumnWidth}" />
+                                <ColumnDefinition Width="{Binding PullColumnWidth}" />
+                                <ColumnDefinition Width="{Binding StateColumnWidth}" />
+                                <ColumnDefinition Width="{Binding TimeColumnWidth}" />
                                 <ColumnDefinition Width="64" />
                             </Grid.ColumnDefinitions>
                             <CheckBox Grid.Column="0"
@@ -78,8 +80,23 @@
                                       cal:Message.Attach="[Event Click] = [Action ToggleSelectAll]"
                                       ToolTip="勾上即全选；已全选时再点一次则全部取消" />
                             <TextBlock Grid.Column="1" Text="项目" Style="{StaticResource TableHeaderStyle}" />
-                            <TextBlock Grid.Column="2" Text="模式" Style="{StaticResource TableHeaderStyle}" />
+
+                            <Grid Grid.Column="2">
+                                <TextBlock Text="模式" Style="{StaticResource TableHeaderStyle}" />
+                                <Thumb Style="{StaticResource ColumnResizeThumbStyle}"
+                                       Margin="0,-12,-4,-10"
+                                       behaviors:ColumnResizeBehavior.ColumnWidth="{Binding ModeColumnWidth, Mode=TwoWay}"
+                                       behaviors:ColumnResizeBehavior.MinWidth="60"
+                                       cal:Message.Attach="[Event DragCompleted] = [Action SaveColumnWidths]; [Event MouseDoubleClick] = [Action ResetColumn('mode')]" />
+                            </Grid>
+
                             <DockPanel Grid.Column="3" LastChildFill="False">
+                                <Thumb DockPanel.Dock="Right"
+                                       Style="{StaticResource ColumnResizeThumbStyle}"
+                                       Margin="0,-12,-4,-10"
+                                       behaviors:ColumnResizeBehavior.ColumnWidth="{Binding BranchColumnWidth, Mode=TwoWay}"
+                                       behaviors:ColumnResizeBehavior.MinWidth="120"
+                                       cal:Message.Attach="[Event DragCompleted] = [Action SaveColumnWidths]; [Event MouseDoubleClick] = [Action ResetColumn('branch')]" />
                                 <Button DockPanel.Dock="Right"
                                         Style="{StaticResource AddTextButtonStyle}"
                                         cal:Message.Attach="[Event Click] = [Action RefreshBranches]"
@@ -88,15 +105,41 @@
                                         ToolTip="重新拉取每个项目的 git 分支信息"
                                         Height="24"
                                         Padding="8,0"
-                                        Margin="6,0,0,0"
+                                        Margin="6,0,6,0"
                                         VerticalAlignment="Center">
                                     <materialDesign:PackIcon Kind="Refresh" Width="13" Height="13" />
                                 </Button>
                                 <TextBlock Text="分支" Style="{StaticResource TableHeaderStyle}" VerticalAlignment="Center" />
                             </DockPanel>
-                            <TextBlock Grid.Column="4" Text="拉取" Style="{StaticResource TableHeaderStyle}" TextAlignment="Center" />
-                            <TextBlock Grid.Column="5" Text="状态" Style="{StaticResource TableHeaderStyle}" />
-                            <TextBlock Grid.Column="6" Text="" Style="{StaticResource TableHeaderStyle}" />
+
+                            <Grid Grid.Column="4">
+                                <TextBlock Text="拉取" Style="{StaticResource TableHeaderStyle}" TextAlignment="Center" HorizontalAlignment="Center" />
+                                <Thumb Style="{StaticResource ColumnResizeThumbStyle}"
+                                       Margin="0,-12,-4,-10"
+                                       behaviors:ColumnResizeBehavior.ColumnWidth="{Binding PullColumnWidth, Mode=TwoWay}"
+                                       behaviors:ColumnResizeBehavior.MinWidth="44"
+                                       cal:Message.Attach="[Event DragCompleted] = [Action SaveColumnWidths]; [Event MouseDoubleClick] = [Action ResetColumn('pull')]" />
+                            </Grid>
+
+                            <Grid Grid.Column="5">
+                                <TextBlock Text="状态" Style="{StaticResource TableHeaderStyle}" />
+                                <Thumb Style="{StaticResource ColumnResizeThumbStyle}"
+                                       Margin="0,-12,-4,-10"
+                                       behaviors:ColumnResizeBehavior.ColumnWidth="{Binding StateColumnWidth, Mode=TwoWay}"
+                                       behaviors:ColumnResizeBehavior.MinWidth="64"
+                                       cal:Message.Attach="[Event DragCompleted] = [Action SaveColumnWidths]; [Event MouseDoubleClick] = [Action ResetColumn('state')]" />
+                            </Grid>
+
+                            <Grid Grid.Column="6">
+                                <TextBlock Text="上次构建" Style="{StaticResource TableHeaderStyle}" />
+                                <Thumb Style="{StaticResource ColumnResizeThumbStyle}"
+                                       Margin="0,-12,-4,-10"
+                                       behaviors:ColumnResizeBehavior.ColumnWidth="{Binding TimeColumnWidth, Mode=TwoWay}"
+                                       behaviors:ColumnResizeBehavior.MinWidth="80"
+                                       cal:Message.Attach="[Event DragCompleted] = [Action SaveColumnWidths]; [Event MouseDoubleClick] = [Action ResetColumn('time')]" />
+                            </Grid>
+
+                            <TextBlock Grid.Column="7" Text="" Style="{StaticResource TableHeaderStyle}" />
                         </Grid>
 
                         <!-- Project rows -->
@@ -110,11 +153,12 @@
                                             <Grid Margin="14,10">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="80" />
-                                                    <ColumnDefinition Width="220" />
-                                                    <ColumnDefinition Width="56" />
-                                                    <ColumnDefinition Width="80" />
+                                                    <ColumnDefinition Width="*" MinWidth="160" />
+                                                    <ColumnDefinition Width="{Binding DataContext.ModeColumnWidth, ElementName=Root}" />
+                                                    <ColumnDefinition Width="{Binding DataContext.BranchColumnWidth, ElementName=Root}" />
+                                                    <ColumnDefinition Width="{Binding DataContext.PullColumnWidth, ElementName=Root}" />
+                                                    <ColumnDefinition Width="{Binding DataContext.StateColumnWidth, ElementName=Root}" />
+                                                    <ColumnDefinition Width="{Binding DataContext.TimeColumnWidth, ElementName=Root}" />
                                                     <ColumnDefinition Width="64" />
                                                 </Grid.ColumnDefinitions>
 
@@ -138,6 +182,7 @@
                                                                FontSize="11"
                                                                Foreground="{StaticResource TextTertiaryBrush}"
                                                                TextTrimming="CharacterEllipsis"
+                                                               ToolTip="{Binding SourcePath}"
                                                                Text="{Binding SourcePath}" />
                                                 </StackPanel>
 
@@ -164,7 +209,8 @@
                                                         Background="{StaticResource CardBorderBrush}"
                                                         CornerRadius="4"
                                                         VerticalAlignment="Center"
-                                                        HorizontalAlignment="Left">
+                                                        HorizontalAlignment="Left"
+                                                        ToolTip="{Binding BranchDisplay}">
                                                     <StackPanel Orientation="Horizontal">
                                                         <materialDesign:PackIcon Kind="SourceBranch"
                                                                                  Width="12" Height="12"
@@ -187,16 +233,19 @@
                                                           ToolTip="执行前先 git pull" />
 
                                                 <Border Grid.Column="5"
-                                                        VerticalAlignment="Center"
-                                                        HorizontalAlignment="Left"
-                                                        Padding="8,3"
-                                                        CornerRadius="4"
-                                                        Background="{Binding LastRunState, Converter={StaticResource ExecutionStateToBrushConverter}}">
-                                                    <TextBlock FontSize="11"
-                                                               FontWeight="SemiBold"
-                                                               Foreground="White"
+                                                        Style="{StaticResource StateBadgeBorderStyle}"
+                                                        ToolTip="{Binding LastRunTimeTooltip}">
+                                                    <TextBlock Style="{StaticResource StateBadgeTextStyle}"
                                                                Text="{Binding UpdateStateDisplay}" />
                                                 </Border>
+
+                                                <TextBlock Grid.Column="6"
+                                                           VerticalAlignment="Center"
+                                                           FontSize="11"
+                                                           Foreground="{StaticResource TextTertiaryBrush}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Text="{Binding TimeColumnDisplay}"
+                                                           ToolTip="{Binding TimeColumnTooltip}" />
 
                                                 <!-- Per-row Stop button. Only visible for PowerShell and uvicorn modes
                                                      while running. Dotnet publish / build exit on their own so a stop
@@ -207,7 +256,7 @@
                                                      DataTemplate — `Action.TargetWithoutContext` was silently dropping
                                                      the click and the `$parent.$parent` syntax throws ActionNotFound
                                                      (literal method name, not a path). -->
-                                                <Button Grid.Column="6"
+                                                <Button Grid.Column="7"
                                                         HorizontalAlignment="Center"
                                                         VerticalAlignment="Center"
                                                         Width="28" Height="28"
@@ -306,17 +355,25 @@
                                 </StackPanel>
                             </Border>
 
-                            <Border Grid.Column="1"
-                                    VerticalAlignment="Center"
-                                    Margin="8,0,0,0"
-                                    Padding="10,6"
-                                    CornerRadius="6"
-                                    Background="{Binding SelectedProject.LastRunState, Converter={StaticResource ExecutionStateToBrushConverter}}">
-                                <TextBlock FontSize="11"
-                                           FontWeight="SemiBold"
-                                           Foreground="White"
-                                           Text="{Binding SelectedProject.UpdateStateDisplay, FallbackValue='未运行', TargetNullValue='未运行'}" />
-                            </Border>
+                            <!-- Time + state badge share the selected project's DataContext so the
+                                 stale/fresh badge style and relative time bind exactly like a row. -->
+                            <StackPanel Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        VerticalAlignment="Center"
+                                        Margin="8,0,0,0"
+                                        DataContext="{Binding SelectedProject}">
+                                <TextBlock VerticalAlignment="Center"
+                                           Margin="0,0,8,0"
+                                           FontSize="11"
+                                           Foreground="{StaticResource TextTertiaryBrush}"
+                                           Text="{Binding TimeColumnDisplay, FallbackValue='—', TargetNullValue='—'}"
+                                           ToolTip="{Binding TimeColumnTooltip}" />
+                                <Border Style="{StaticResource StateBadgeBorderStyle}"
+                                        ToolTip="{Binding LastRunTimeTooltip}">
+                                    <TextBlock Style="{StaticResource StateBadgeTextStyle}"
+                                               Text="{Binding UpdateStateDisplay, FallbackValue='未运行', TargetNullValue='未运行'}" />
+                                </Border>
+                            </StackPanel>
                         </Grid>
 
                         <!-- Right-pane live log -->
@@ -333,22 +390,30 @@
                                                     CornerRadius="6"
                                                     Padding="12,10"
                                                     Visibility="{Binding Available, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                <ScrollViewer Style="{StaticResource DarkLogScrollViewer}"
-                                                              VerticalScrollBarVisibility="Auto"
-                                                              HorizontalScrollBarVisibility="Auto"
-                                                              behaviors:AutoScrollToEndBehavior.IsEnabled="True">
-                                                    <ItemsControl ItemsSource="{Binding Lines}">
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate>
-                                                                <TextBlock FontFamily="Consolas"
-                                                                           FontSize="12"
-                                                                           Foreground="{StaticResource LogTextBrush}"
-                                                                           TextWrapping="Wrap"
-                                                                           Text="{Binding}" />
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
-                                                </ScrollViewer>
+                                                <Grid>
+                                                    <ScrollViewer Style="{StaticResource DarkLogScrollViewer}"
+                                                                  VerticalScrollBarVisibility="Auto"
+                                                                  HorizontalScrollBarVisibility="Auto"
+                                                                  behaviors:AutoScrollToEndBehavior.IsEnabled="True">
+                                                        <ItemsControl ItemsSource="{Binding Lines}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <TextBlock FontFamily="Consolas"
+                                                                               FontSize="12"
+                                                                               Foreground="{StaticResource LogTextBrush}"
+                                                                               TextWrapping="Wrap"
+                                                                               Text="{Binding}" />
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </ScrollViewer>
+                                                    <TextBlock Text="暂无日志输出，等待运行…"
+                                                               HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center"
+                                                               FontSize="12"
+                                                               Foreground="{StaticResource LogTimestampBrush}"
+                                                               Visibility="{Binding HasLines, Converter={StaticResource InvertBooleanToVisibilityConverter}}" />
+                                                </Grid>
                                             </Border>
                                             <Border Background="{StaticResource SurfaceSubtleBrush}"
                                                     BorderBrush="{StaticResource CardBorderBrush}"
@@ -384,22 +449,30 @@
                                                     CornerRadius="6"
                                                     Padding="12,10"
                                                     Visibility="{Binding Available, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                <ScrollViewer Style="{StaticResource DarkLogScrollViewer}"
-                                                              VerticalScrollBarVisibility="Auto"
-                                                              HorizontalScrollBarVisibility="Auto"
-                                                              behaviors:AutoScrollToEndBehavior.IsEnabled="True">
-                                                    <ItemsControl ItemsSource="{Binding Lines}">
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate>
-                                                                <TextBlock FontFamily="Consolas"
-                                                                           FontSize="12"
-                                                                           Foreground="{StaticResource LogTextBrush}"
-                                                                           TextWrapping="Wrap"
-                                                                           Text="{Binding}" />
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
-                                                </ScrollViewer>
+                                                <Grid>
+                                                    <ScrollViewer Style="{StaticResource DarkLogScrollViewer}"
+                                                                  VerticalScrollBarVisibility="Auto"
+                                                                  HorizontalScrollBarVisibility="Auto"
+                                                                  behaviors:AutoScrollToEndBehavior.IsEnabled="True">
+                                                        <ItemsControl ItemsSource="{Binding Lines}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <TextBlock FontFamily="Consolas"
+                                                                               FontSize="12"
+                                                                               Foreground="{StaticResource LogTextBrush}"
+                                                                               TextWrapping="Wrap"
+                                                                               Text="{Binding}" />
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </ScrollViewer>
+                                                    <TextBlock Text="暂无日志输出，等待运行…"
+                                                               HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center"
+                                                               FontSize="12"
+                                                               Foreground="{StaticResource LogTimestampBrush}"
+                                                               Visibility="{Binding HasLines, Converter={StaticResource InvertBooleanToVisibilityConverter}}" />
+                                                </Grid>
                                             </Border>
                                             <Border Background="{StaticResource SurfaceSubtleBrush}"
                                                     BorderBrush="{StaticResource CardBorderBrush}"
@@ -477,7 +550,7 @@
                     <TextBlock VerticalAlignment="Center"
                                FontSize="12"
                                Foreground="{StaticResource TextTertiaryBrush}"
-                               Text="勾选项目后点击右下角的「运行」按钮执行；切换左侧项目即可查看其 logs 目录的最新文件内容。" />
+                               Text="勾选项目后点击右下角的「运行」按钮执行；拖动表头分隔线可调整列宽（双击恢复默认）；切换左侧项目即可查看其 logs 目录的最新文件内容。" />
                 </DockPanel>
             </Border>
         </Grid>
